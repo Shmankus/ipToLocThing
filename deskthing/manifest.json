@@ -1,0 +1,18 @@
+{
+    "id": "iptolocthing",
+    "requires": [],
+    "label": "iptolocthing",
+    "version": "0.10.12",
+    "description": "iptolocthing",
+    "author": "shmank",
+    "platforms": ["windows"],
+    "homepage": "",
+    "repository": "",
+    "template": "full",
+    "tags": ["utility"],
+    "requiredVersions": {
+        "server": ">=0.11.0",
+        "client": ">=0.11.0"
+    },
+    "updateUrl": ""
+}

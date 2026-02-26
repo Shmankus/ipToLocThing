@@ -1,0 +1,252 @@
+button {
+  background: transparent;
+  background-color: transparent;
+
+  border: none;
+}
+
+button:focus {
+  outline: none;
+  border: none;
+}
+
+button:active {
+  outline: none;
+  border: none;
+}
+
+h1 {
+  color: rgb(107, 107, 107);
+  ;
+}
+
+h2 {
+  color: rgb(107, 107, 107);
+  ;
+}
+
+h3 {
+  color: rgb(107, 107, 107);
+  ;
+}
+
+h4 {
+  color: rgb(107, 107, 107);
+  ;
+}
+
+.grey {
+  color: rgb(107, 107, 107);
+  ;
+}
+
+body {
+
+  background-color: black;
+  color: white;
+}
+
+.card-container {
+  max-width: 600;
+  margin: 0 auto;
+  margin-top: 30;
+}
+
+.horizontalCard {
+  width: 100%;
+  height: 50;
+  background-color: #470018;
+  border-radius: 10;
+  position: relative;
+  overflow: hidden;
+}
+
+.horizontalFill {
+  height: 100%;
+  background-color: rgb(145, 0, 0);
+  transition: width 1s ease-in-out;
+}
+
+
+/* Container for CPU core bars with background to separate them */
+
+.horizontalInfo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(107, 107, 107);
+  font-weight: bold;
+}
+
+.cpu-cores-container {
+  display: flex;
+  justify-content: center;
+  /* Center the CPU cores horizontally */
+  height: 100%;
+  /* Use full height of the container */
+  align-items: flex-end;
+  /* Align the bars to the bottom of the container */
+}
+
+.cpu-core-container {
+  display: flex;
+  flex-direction: column;
+  /* Align vertically within each individual bar */
+  justify-content: flex-end;
+  /* Make sure they fill from bottom to top */
+  height: 100%;
+  width: 30px;
+  /* Same width as the cpu-core bars */
+  background-color: #470018;
+  border-radius: 5px;
+  margin-right: 5px;
+  border: 1px solid rgb(107, 107, 107);
+  /* Add border for visual separation */
+  position: relative;
+  width: 31px;
+  /* Adjust the width as needed */
+  margin-right: 2px;
+  margin-left: 2px
+    /* Space between bars */
+}
+
+.cpu-core {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  background-color: rgba(216, 0, 0, 0.6);
+  /* Semi-transparent red */
+
+  /* Transition on height change */
+}
+
+
+.cpu-core-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* Centers the text */
+  color: rgb(107, 107, 107);
+  /* Text color */
+  font-size: 14px;
+  /* Text size */
+  z-index: 1;
+  /* Ensure the text stays above the bar */
+}
+
+.hollow-circle {
+  width: 100px;
+  /* Set the width of the circle */
+  height: 100px;
+  /* Set the height of the circle (must be equal to width for a perfect circle) */
+  border: 5px solid red;
+  /* Create a red border for the circle */
+  border-radius: 50%;
+  /* Make the element circular */
+  box-sizing: border-box;
+  /* Ensures padding and border are included in the element's total width and height */
+  position: absolute;
+  left: 100px;
+  /* 100 pixels from the left edge */
+  top: 50px;
+  /* 50 pixels from the top edge */
+}
+
+.vertical-slider {
+  -webkit-appearance: none;
+  /* remove default styles */
+  width: 8px;
+  /* thickness */
+  height: 150px;
+  /* length */
+  writing-mode: bt-lr;
+  /* bottom-to-top left-to-right */
+  transform: rotate(-90deg);
+  /* rotate to make vertical in some browsers */
+  background: #5a5a5a;
+}
+
+.vertical-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #b22209;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+input[type="range"].slider-thumb {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 24px;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 8px;
+  margin: 0 8px;
+}
+
+input[type="range"].slider-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 4px #0008;
+  border: none;
+  margin-top: -1.5px;
+}
+
+input[type="range"].slider-thumb::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 4px #0008;
+  border: none;
+}
+
+input[type="range"].slider-thumb::-ms-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 4px #0008;
+  border: none;
+}
+
+input[type="range"].slider-thumb::-webkit-slider-runnable-track {
+  height: 24px;
+  border-radius: 8px;
+  background: transparent;
+}
+
+input[type="range"].slider-thumb::-ms-fill-lower,
+input[type="range"].slider-thumb::-ms-fill-upper {
+  background: transparent;
+}
+
+input[type="range"].slider-thumb:focus {
+  outline: none;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0%);
+  }
+
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
