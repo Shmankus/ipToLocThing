@@ -17,7 +17,7 @@ const isDev = process.env.NODE_ENV === 'development';
 
 
 export const start = async () => {
-const venvPython = path.join(__dirname, '../.venv/bin/python');
+const venvPython = path.join(__dirname, process.env.PYTHON_VENV || '../.venv/scripts/python');
 
 
 const pythonProcess = spawn(venvPython, [
