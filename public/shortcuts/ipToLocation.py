@@ -5,13 +5,16 @@ import struct
 from flask import json
 from scapy.all import get_if_addr, sniff, IP, conf
 import csv
+import os
+import dotenv
+dotenv.load_dotenv()
 
 geo_cache = {}
 my_ip = get_if_addr(conf.iface)
 
 # Load CSV into memory at startup
 ip_db = []
-with open('C:\\Users\\Shmank\\Downloads\\IP2LOCATION-LITE-DB5.CSV\\IP2LOCATION-LITE-DB5.CSV', mode='r', newline='') as file:
+with open(os.getenv("CSV_PATH"), mode='r', newline='') as file:
     reader = csv.reader(file)
     next(reader, None)
     for row in reader:

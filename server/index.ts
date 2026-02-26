@@ -5,6 +5,9 @@ import { DESKTHING_EVENTS, SETTING_TYPES } from "@deskthing/types";
 import path from "path";
 import { createRequire } from 'module';
 import { spawn } from "child_process";
+import dotenv from "dotenv";
+
+dotenv.config();
 const isDev = process.env.NODE_ENV === 'development';
 
 
@@ -14,11 +17,11 @@ const isDev = process.env.NODE_ENV === 'development';
 
 
 export const start = async () => {
+const venvPython = path.join(__dirname, '../.venv/bin/python');
 
 
-
-const pythonProcess = spawn('python', [
-    'C:\\Users\\Shmank\\iptolocthing\\public\\shortcuts\\ipToLocation.py'
+const pythonProcess = spawn(venvPython, [
+    process.env.PYTHONPATH || path.join(__dirname, '../public/shortcuts/ipToLocation.py')
 ], {
     env: {
         ...process.env,
