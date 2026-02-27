@@ -8,7 +8,7 @@ import { spawn } from "child_process";
 import dotenv from "dotenv";
 const isDev = process.env.NODE_ENV === 'development';
 !isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' });
-isDev && dotenv.config();
+isDev && dotenv.config({ path: __dirname + '/../public/shortcuts/.env' });
 
 
 
