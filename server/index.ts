@@ -6,9 +6,9 @@ import path from "path";
 import { createRequire } from 'module';
 import { spawn } from "child_process";
 import dotenv from "dotenv";
-
-dotenv.config();
 const isDev = process.env.NODE_ENV === 'development';
+!isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' });
+isDev && dotenv.config();
 
 
 
@@ -17,10 +17,10 @@ const isDev = process.env.NODE_ENV === 'development';
 
 
 export const start = async () => {
-const venvPython = path.join(__dirname, process.env.PYTHON_VENV || '../.venv/scripts/python');
 
 
-const pythonProcess = spawn(venvPython, [
+
+const pythonProcess = spawn(process.env.PYTHON_VENV || '../.venv/scripts/python', [
     process.env.PYTHONPATH || path.join(__dirname, '../public/shortcuts/ipToLocation.py')
 ], {
     env: {
