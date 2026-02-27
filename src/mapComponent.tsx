@@ -63,7 +63,7 @@ const StaticMap = memo(() => {
     <Map
       width={width}
       height={height}
-      mapQuality='low'
+      mapQuality= {(isDev ? 'high' : 'low')}
     />
   );
 });
@@ -146,6 +146,8 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
       }];
     });
   }, []);
+
+  // MERGE TEXT AND CIRCLE ADDITION INTO ONE FUNCTION LATER, ALSO MAKE TEXT OPTIONAL IN addCircle TO AVOID DUPLICATE CALLS
 
   const addText = useCallback((lat: number, lng: number, text: string, duration = 1000) => {
     const id = `${lat},${lng},${text}`; // Unique ID based on coordinates and text
