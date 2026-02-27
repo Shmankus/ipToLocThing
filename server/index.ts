@@ -67,10 +67,7 @@ export const start = async () => {
 
     // ======================================================= IP TO LOCATION SECTION =======================================================
 
-    if (!process.env.PYTHON_VENV || !process.env.PYTHONPATH) {
-        DeskThing.sendFatal("Python environment variables are not set");
-        throw new Error("Python environment variables are not set");
-    } else {
+    try {
         const pythonProcess = spawn(process.env.PYTHON_VENV || 'ERROR', [
             process.env.PYTHONPATH || path.join(__dirname, 'ERROR')
         ], {
@@ -117,6 +114,9 @@ export const start = async () => {
         pythonProcess.on('close', (code: any) => {
             console.log(`Python process exited with code ${code}`);
         });
+    }catch (error) {
+        console.error("Failed to start Python process for IP to location:", error);
+        DeskThing.sendFatal("MAKE SURE ENV HAS CORRECT PATHS TO PYTHON AND SCRIPT");
     }
 
     // ======================================================= IP TO LOCATION SECTION END =======================================================
