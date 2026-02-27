@@ -92,7 +92,7 @@ const CirclesOverlayWithText = memo(({ circles, texts }: { circles: TemporaryPoi
       <circle key={c.id} cx={c.lng} cy={c.lat} r={c.r} fill={c.fill} />
     ))}
     {(isDev) && texts.map((t) => (
-      <text key={t.id} x={t.lng} y={t.lat} fill="red" fontSize="12" textAnchor="middle" alignmentBaseline="middle">
+      <text key={t.id} x={t.lng} y={t.lat} fill="orange" fontSize="12" textAnchor="middle" alignmentBaseline="middle">
         {t.text}
       </text>
     ))}
