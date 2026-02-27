@@ -1,6 +1,6 @@
 import Map from 'react-offline-map';
 
-import { useState, forwardRef, useImperativeHandle, useCallback, memo, useMemo } from 'react';
+import { useState, forwardRef, useImperativeHandle, useCallback, memo, useMemo, useEffect } from 'react';
 const isDev = process.env.NODE_ENV === 'development';
 /**
  * Represents a temporary circle point rendered on the map overlay.
@@ -87,7 +87,7 @@ const CirclesOverlayWithText = memo(({ circles, texts }: { circles: TemporaryPoi
     width={window.innerWidth}
     height={window.innerHeight}
   >
-    {circles.map((c) => ( 
+    {circles.map((c) => (
       // `key` uses the unique id so React can efficiently diff added/removed circles
       <circle key={c.id} cx={c.lng} cy={c.lat} r={c.r} fill={c.fill} />
     ))}
@@ -128,39 +128,62 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
    * renders — required for `useImperativeHandle` to not re-fire unnecessarily.
    */
   const addCircle = useCallback((lat: number, lng: number, color = '#FF0000', radius = 0.1, duration = 1000) => {
-    const id = `${Date.now()}-${Math.random()}`;
-    setCircles((prev) => [...prev, {
-      id,
-      lng: ((lng + 180) / 360) * window.innerWidth,   // x axis
-      lat: ((90 - lat) / 180) * window.innerHeight,    // y axis, flipped
-      r: radius,
-      fill: color,
+    const id = `${lat},${lng}`;
 
-    }]);
+    setCircles((prev) => {
+      if (prev.some(c => c.id === id)) return prev; // already exists, skip
 
-    // Remove the circle by id after 1 second using functional state update
-    // to always operate on the latest state, avoiding stale closure issues
-    setTimeout(() => {
-      setCircles((prev) => prev.filter((c) => c.id !== id));
-    }, duration);
-    }, []);
+      setTimeout(() => {
+        setCircles((prev) => prev.filter((c) => c.id !== id));
+      }, duration);
 
-    const addText = useCallback((lat: number, lng: number, text: string, duration = 1000) => {
-      const id = `${Date.now()}-${Math.random()}`;
-      setCircleText((prev) => [...prev, {
+      return [...prev, {
+        id,
+        lng: ((lng + 180) / 360) * window.innerWidth,
+        lat: ((90 - lat) / 180) * window.innerHeight,
+        r: radius,
+        fill: color,
+      }];
+    });
+  }, []);
+
+  const addText = useCallback((lat: number, lng: number, text: string, duration = 1000) => {
+    const id = `${lat},${lng},${text}`; // Unique ID based on coordinates and text
+
+    setCircleText((prev) => {
+      if (prev.some(t => t.id === id)) return prev; // already exists, skip
+
+      setTimeout(() => {
+        setCircleText((prev) => prev.filter((t) => t.id !== id));
+      }, duration);
+
+
+
+      return [...prev, {
         id,
         lng: ((lng + 180) / 360) * window.innerWidth,   // x axis
         lat: ((90 - lat) / 180) * window.innerHeight - 12,    // y axis, flipped (offset by 12px to avoid overlapping with circle)
         text,
-      }]);
+      }];
+    });
+  }, []);
 
-      // Remove the text by id after 1 second using functional state update
-      setTimeout(() => {
-        setCircleText((prev) => prev.filter((t) => t.id !== id));
-      }, duration);
-    }, []);
 
-    
+  // clears the circle and text array every 10 seconds (FIX MEMORY LEAK LATER)
+
+  // useEffect(() => {
+
+  //   const intervalId = setInterval(() => {
+  //     setCircles([]);
+  //     setCircleText([]);
+  //     console.log("Cleared circles and texts to prevent memory leak");
+  //   }, 10000);
+
+  //   return () => {
+  //     clearInterval(intervalId);
+  //   };
+  // }, []);
+
 
   /**
    * Exposes `addPoint` and `addText` on the forwarded ref so parent components can call them directly.
@@ -171,13 +194,14 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
 
   return (
     // `position: relative` makes this div the anchor for CirclesOverlay's `position: absolute`
-    <div style={{ position: 'relative' }}>
-      {/* Hides built-in map toolbar and navigation controls via attribute selectors */}
-      <style>{`[role="toolbar"],[role="navigation"]{display:none!important}`}</style>
-      <StaticMap />
-
-      <CirclesOverlayWithText circles={circles} texts={circleText} />
-    </div>
+    <>
+      <div style={{ position: 'relative' }}>
+        {/* Hides built-in map toolbar and navigation controls via attribute selectors */}
+        <style>{`[role="toolbar"],[role="navigation"]{display:none!important}`}</style>
+        <StaticMap />
+      </div>
+      <CirclesOverlayWithText circles={circles} texts={circleText} /> {/* Renders circles and text on top of the map, re-rendering only when these arrays change */}
+    </>
   );
 });
 

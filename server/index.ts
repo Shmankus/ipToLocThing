@@ -7,8 +7,8 @@ import { createRequire } from 'module';
 import { spawn } from "child_process";
 import dotenv from "dotenv";
 const isDev = process.env.NODE_ENV === 'development';
-!isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' });
-isDev && dotenv.config({ path: __dirname + '/../public/shortcuts/.env' });
+!isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' }); // In production, the client folder is bundled inside the server, so we need to look for the .env file there
+isDev && dotenv.config({ path: __dirname + '/../public/shortcuts/.env' }); // in dev the public folder is visible
 
 
 
@@ -20,8 +20,8 @@ export const start = async () => {
 
 
 
-const pythonProcess = spawn(process.env.PYTHON_VENV || '../.venv/scripts/python', [
-    process.env.PYTHONPATH || path.join(__dirname, '../public/shortcuts/ipToLocation.py')
+const pythonProcess = spawn(process.env.PYTHON_VENV || 'ERROR', [
+    process.env.PYTHONPATH || path.join(__dirname, 'ERROR')
 ], {
     env: {
         ...process.env,

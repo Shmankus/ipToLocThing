@@ -21,7 +21,7 @@ const ScreenViewer: React.FC = () => {
   useEffect(() => {
 
     const handler = (msg: any) => {
-      console.log(msg.payload.lat + ", " + msg.payload.lon + " - " + msg.payload.ip);
+      isDev && console.log(msg.payload.lat + ", " + msg.payload.lon + " - " + msg.payload.ip);
       try {
         if (msg.payload.lat !== 0 || msg.payload.lon !== 0) { // Sometimes the geolocation API returns (0,0) for private IPs or when it fails to find a location. Ignore these.
           handleAddPoint(msg.payload.lat, msg.payload.lon, msg.payload.ip);
