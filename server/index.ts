@@ -22,6 +22,11 @@ export const start = async () => {
 
 
     // ======================================================= IP INFO GATHER SECTION =======================================================
+
+
+
+    if (process.env.PYTHON_INFO_PATH) {
+
     DeskThing.sendFatal("Starting Python process for IP info");
 
     const pythonIpInfo = spawn(process.env.PYTHON_VENV || 'python3', [
@@ -58,7 +63,9 @@ export const start = async () => {
             pythonIpInfo.stdin.write(JSON.stringify({ fn, args }) + "\n");
         });
     }
-
+} else {
+    DeskThing.sendFatal("PYTHON_INFO_PATH not set, skipping IP info process");
+}
 
 
 
@@ -67,7 +74,7 @@ export const start = async () => {
 
     // ======================================================= IP TO LOCATION SECTION =======================================================
 
-    try {
+
         const pythonProcess = spawn(process.env.PYTHON_VENV || 'ERROR', [
             process.env.PYTHONPATH || path.join(__dirname, 'ERROR')
         ], {
@@ -114,10 +121,7 @@ export const start = async () => {
         pythonProcess.on('close', (code: any) => {
             console.log(`Python process exited with code ${code}`);
         });
-    }catch (error) {
-        console.error("Failed to start Python process for IP to location:", error);
-        DeskThing.sendFatal("MAKE SURE ENV HAS CORRECT PATHS TO PYTHON AND SCRIPT");
-    }
+
 
     // ======================================================= IP TO LOCATION SECTION END =======================================================
 
