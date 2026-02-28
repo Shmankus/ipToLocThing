@@ -14,11 +14,13 @@ const ScreenViewer: React.FC = () => {
 
   const handleAddPoint = (lat: number, lng: number, ip: string, security: string) => {
 
-    mapRef.current?.addPoint(lat, lng, safeSecurityTypes.includes(security as any) ? 'orange' : 'red', 
-        safeSecurityTypes.includes(security as any) ? 1000 : 0);
-    mapRef.current?.addText(lat, lng, ip, safeSecurityTypes.includes(security as any) ? 'orange' : 'red', 
-        safeSecurityTypes.includes(security as any) ? 1000 : 0);
+    const safe = safeSecurityTypes.includes(security as any);
+
+    mapRef.current?.addPoint(lat, lng, ip, safe ? 'orange' : 'red', 
+        safe ? 1000 : 0);
   };
+
+
 
   useEffect(() => {
 

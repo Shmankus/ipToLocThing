@@ -38,8 +38,8 @@ export interface MapComponentHandle {
    * @param duration - Optional duration in milliseconds (default: 1000)
    * @param text - Optional text to display on the circle
    */
-  addPoint: (lat: number, lng: number, color: string, duration: number) => void;
-  addText: (lat: number, lng: number, text: string, color: string, duration: number) => void;
+  addPoint: (lat: number, lng: number, ip: string, color: string, duration: number) => void;
+
 }
 
 /**
@@ -132,7 +132,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
    * Wrapped in `useCallback` with `[]` so the function reference is stable across
    * renders — required for `useImperativeHandle` to not re-fire unnecessarily.
    */
-  const addPoint = useCallback((lat: number, lng: number, color: string, duration: number) => {
+  const addPoint = useCallback((lat: number, lng: number, ip: string, color: string, duration: number) => {
     const id = `${lat},${lng}`;
 
     setCircles((prev) => {
@@ -144,6 +144,9 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
           setCircles((prev) => prev.filter((c) => c.id !== id));
         }, duration);
       }
+
+      if (isDev || duration == 0)
+        addText(lat, lng, ip, color, duration); // Show coordinates as text label
 
       return [...prev, {
         id,
@@ -203,7 +206,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
    * The dependency on `addCircle` ensures the exposed function updates if addCircle ever changes
    * (it won't here due to the empty useCallback dep array, but it's correct practice).
    */
-  useImperativeHandle(ref, () => ({ addPoint, addText }), [addPoint, addText]);
+  useImperativeHandle(ref, () => ({ addPoint}), [addPoint]);
 
   return (
     // `position: relative` makes this div the anchor for CirclesOverlay's `position: absolute`
