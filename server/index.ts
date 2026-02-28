@@ -6,9 +6,29 @@ import path from "path";
 import { spawn } from "child_process";
 import dotenv from "dotenv";
 import readline from "readline";
+import os from "os";
 const isDev = process.env.NODE_ENV === 'development';
 !isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' }); // In production, the client folder is bundled inside the server, so we need to look for the .env file there
 isDev && dotenv.config({ path: __dirname + '/../public/shortcuts/.env' }); // in dev the public folder is visible
+
+const OS = os.platform(); // 'win32', 'darwin', 'linux', etc.
+
+
+// Decides the .venv path based on the OS and whether we're in development or production. In development, the .venv is located in public/shortcuts (since client code isn't bundled and can access sibling folders), while in production it's located in client/shortcuts (since client is bundled with shortcuts inside it).
+let pythonVenvPath = '';
+switch (OS) {
+    case 'win32':
+        pythonVenvPath = isDev ? path.join(__dirname, '../public/shortcuts/.venv/Scripts/python.exe') : path.join(__dirname, '../client/shortcuts/.venv/Scripts/python.exe') || "ERROR"
+        break;
+    case 'darwin':
+        pythonVenvPath = isDev ? path.join(__dirname, '../public/shortcuts/.venv/bin/python') : path.join(__dirname, '../client/shortcuts/.venv/bin/python') || "ERROR"
+        break;
+    case 'linux':
+        DeskThing.sendFatal("Python support is currently only implemented for Windows and MacOS.");
+        break;
+
+}
+
 
 // ['-', 'BOTNET', 'SPAM/BOTNET', 'SPAM', 'SPAM/SCANNER/BOTNET', 'SCANNER', 'SCANNER/BOTNET', 'SPAM/SCANNER', 'BOGON', 'BOTNET/BOGON', 'SPAM/SCANNER/BOGON', 'SCANNER/BOGON']
 let pythonIpInfo = null as any;
@@ -24,7 +44,10 @@ export const start = async () => {
 
     DeskThing.sendFatal("Starting Python process for IP info");
 
-    pythonIpInfo = spawn(process.env.PYTHON_VENV || 'python3', [
+
+
+    // change to .venv path and move .venv to shortcuts
+    pythonIpInfo = spawn(pythonVenvPath, [
         // path to the script - in dev look in public/shortcuts, in prod look in client/shortcuts (since client is bundled with shortcuts (anything inside public) in prod)
         isDev ? path.join(__dirname, '../public/shortcuts/ipToInfo.py') : path.join(__dirname, '../client/shortcuts/ipToInfo.py') || "ERROR" // path to the script
     ], {
@@ -79,7 +102,7 @@ export const start = async () => {
 
 
     // Spawn a separate Python process for IP to location (could be combined with the above, but keeping separate for clarity and in case we want to run them on different schedules in the future)
-    let pythonProcess = spawn(process.env.PYTHON_VENV || 'ERROR', [
+    let pythonProcess = spawn(pythonVenvPath, [
         isDev ? path.join(__dirname, '../public/shortcuts/ipToLocation.py') : path.join(__dirname, '../client/shortcuts/ipToLocation.py') || "ERROR" // path to the script
 
     ], {
