@@ -11,8 +11,20 @@ const isDev = process.env.NODE_ENV === 'development';
 !isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' }); // In production, the client folder is bundled inside the server, so we need to look for the .env file there
 isDev && dotenv.config({ path: __dirname + '/../public/shortcuts/.env' }); // in dev the public folder is visible
 
+// ['-', 'BOTNET', 'SPAM/BOTNET', 'SPAM', 'SPAM/SCANNER/BOTNET', 'SCANNER', 'SCANNER/BOTNET', 'SPAM/SCANNER', 'BOGON', 'BOTNET/BOGON', 'SPAM/SCANNER/BOGON', 'SCANNER/BOGON']
 
 
+const safeSecurityTypes = ["-","N/A"] as const;
+
+const dangerousSecurityTypes = ["BOTNET", "SPAM/BOTNET", "SPAM", "SPAM/SCANNER/BOTNET", "SCANNER", "SCANNER/BOTNET", "SPAM/SCANNER", "BOGON", "BOTNET/BOGON", "SPAM/SCANNER/BOGON", "SCANNER/BOGON"] as const;
+
+type SecurityType = typeof safeSecurityTypes[number] | typeof dangerousSecurityTypes[number];
+
+
+type securityInfo = {
+    ip: string;
+    security: SecurityType;
+};
 
 // !===================== End DeskThing Event Handlers ===================!
 
@@ -25,7 +37,6 @@ export const start = async () => {
 
 
 
-    if (process.env.PYTHON_INFO_PATH) {
 
     DeskThing.sendFatal("Starting Python process for IP info");
 
@@ -56,6 +67,8 @@ export const start = async () => {
 
     pythonIpInfo.stderr.on("data", (d) => console.error("Python error:", d.toString()));
 
+
+
     // Call a Python function by name
     function callPython(fn: string, args = {}) {
         return new Promise((resolve, reject) => {
@@ -63,10 +76,6 @@ export const start = async () => {
             pythonIpInfo.stdin.write(JSON.stringify({ fn, args }) + "\n");
         });
     }
-} else {
-    DeskThing.sendFatal("PYTHON_INFO_PATH not set, skipping IP info process");
-}
-
 
 
 
@@ -98,14 +107,26 @@ export const start = async () => {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
                 try {
+
+                
+                    const security = await callPython("getSecurityIP", { "ip": JSON.parse(trimmed).ip }) as any;
+                    // if (dangerousSecurityTypes.includes(security.security)) {
+                    //     DeskThing.sendFatal(`Dangerous IP detected: ${security.ip}`);
+                    // } else {
+                    //     DeskThing.sendFatal(`Safe IP detected: ${security.ip}`);
+                    // }
+
+                    const parsed = JSON.parse(trimmed);
+                    parsed.security = security.security; // attach security info to the original payload
+
                     DeskThing.send({
                         type: "ipLocationUpdate",
-                        payload: JSON.parse(trimmed),
+                        payload: parsed,
                     });
 
-                    // TEST CODE TO CHECK IF I CAN CALL PYTHON FUNCTION FROM HERE AND GET THE RESULT, ALSO TESTING SENDING FATAL MESSAGE TO DESKTHING
-                    // const security = await callPython("getSecurityIP", { ip: JSON.parse(trimmed).ip });
-                    // DeskThing.sendFatal(JSON.stringify(security));
+                    // DeskThing.sendFatal(`Received IP info: ${JSON.stringify(parsed)}`);
+
+
 
 
                 } catch (error) {

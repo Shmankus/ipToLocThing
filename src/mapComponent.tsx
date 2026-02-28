@@ -2,10 +2,7 @@ import Map from 'react-offline-map';
 
 import { useState, forwardRef, useImperativeHandle, useCallback, memo, useMemo, useEffect } from 'react';
 const isDev = process.env.NODE_ENV === 'development';
-/**
- * Represents a temporary circle point rendered on the map overlay.
- * Coordinates (lat, lng) are stored as pre-converted pixel values, not degrees.
- */
+
 interface TemporaryPoint {
   id: string;   // Unique identifier used to target and remove the circle after its duration
   lat: number;  // Pixel Y position on the SVG overlay (converted from latitude)
@@ -19,6 +16,7 @@ interface TemporaryText {
   lat: number;  // Pixel Y position on the SVG overlay (converted from latitude)
   lng: number;  // Pixel X position on the SVG overlay (converted from longitude)
   text: string; // Text content to display
+  fill: string; // CSS color string for the text fill
 }
 
 /**
@@ -40,8 +38,8 @@ export interface MapComponentHandle {
    * @param duration - Optional duration in milliseconds (default: 1000)
    * @param text - Optional text to display on the circle
    */
-  addPoint: (lat: number, lng: number, color?: string, radius?: number, duration?: number, text?: string) => void;
-  addText: (lat: number, lng: number, text: string, duration?: number) => void;
+  addPoint: (lat: number, lng: number, color: string, duration: number) => void;
+  addText: (lat: number, lng: number, text: string, color: string, duration: number) => void;
 }
 
 /**
@@ -63,7 +61,7 @@ const StaticMap = memo(() => {
     <Map
       width={width}
       height={height}
-      mapQuality= {(isDev ? 'high' : 'low')}
+      mapQuality={(isDev ? 'high' : 'low')}
     />
   );
 });
@@ -92,7 +90,7 @@ const CirclesOverlayWithText = memo(({ circles, texts }: { circles: TemporaryPoi
       <circle key={c.id} cx={c.lng} cy={c.lat} r={c.r} fill={c.fill} />
     ))}
     {(isDev) && texts.map((t) => (
-      <text key={t.id} x={t.lng} y={t.lat} fill="orange" fontSize="12" textAnchor="middle" alignmentBaseline="middle">
+      <text key={t.id} x={t.lng} y={t.lat} fill={t.fill} fontSize="12" textAnchor="middle" alignmentBaseline="middle">
         {t.text}
       </text>
     ))}
@@ -118,6 +116,13 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
 
   /**
    * Adds a circle at the given lat/lng and schedules its removal after 1 second.
+   * 
+   * @param lat - Latitude in degrees (-90 to 90)
+   * @param lng - Longitude in degrees (-180 to 180)
+   * @param color - Optional CSS color string for the circle (default: '#FF0000')
+   * @param radius - Optional radius of the circle in pixels (default: 0.1)
+   * @param duration - Optional duration in milliseconds before the circle is removed (default: 1000)
+   *
    *
    * Lat/lng degrees are converted to pixel coordinates:
    *   X (lng): shifts range from [-180, 180] to [0, 360], then scales to screen width
@@ -127,38 +132,59 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
    * Wrapped in `useCallback` with `[]` so the function reference is stable across
    * renders — required for `useImperativeHandle` to not re-fire unnecessarily.
    */
-  const addCircle = useCallback((lat: number, lng: number, color = '#FF0000', radius = 0.1, duration = 1000) => {
+  const addPoint = useCallback((lat: number, lng: number, color: string, duration: number) => {
     const id = `${lat},${lng}`;
 
     setCircles((prev) => {
       if (prev.some(c => c.id === id)) return prev; // already exists, skip
 
-      setTimeout(() => {
-        setCircles((prev) => prev.filter((c) => c.id !== id));
-      }, duration);
+
+      if (duration > 0) {
+        setTimeout(() => {
+          setCircles((prev) => prev.filter((c) => c.id !== id));
+        }, duration);
+      }
 
       return [...prev, {
         id,
         lng: ((lng + 180) / 360) * window.innerWidth,
         lat: ((90 - lat) / 180) * window.innerHeight,
-        r: radius,
+        r: 5,
         fill: color,
       }];
     });
   }, []);
 
-  // MERGE TEXT AND CIRCLE ADDITION INTO ONE FUNCTION LATER, ALSO MAKE TEXT OPTIONAL IN addCircle TO AVOID DUPLICATE CALLS
 
-  const addText = useCallback((lat: number, lng: number, text: string, duration = 1000) => {
-    const id = `${lat},${lng},${text}`; // Unique ID based on coordinates and text
+  /**
+   * 
+   *  adds text at the given lat/lng minus a vertical offset and schedules its removal after 1 second.
+   * 
+   * @param lat - Latitude in degrees (-90 to 90)
+   * @param lng - Longitude in degrees (-180 to 180)
+   * @param text - Text content to display
+   * @param color - Optional CSS color string for the text (default: '#FF0000')
+   * @param duration - Optional duration in milliseconds before the text is removed (default: 1000)
+   * 
+   * Lat/lng degrees are converted to pixel coordinates:
+   *   X (lng): shifts range from [-180, 180] to [0, 360], then scales to screen width
+   *   Y (lat): flipped because screen Y increases downward but latitude increases upward,
+   *            shifts range from [90, -90] to [0, 180], then scales to screen height
+   *   *
+   *  Wrapped in `useCallback` with `[]` so the function reference is stable across
+   * renders — required for `useImperativeHandle` to not re-fire unnecessarily.
+   */
+  const addText = useCallback((lat: number, lng: number, text: string, color: string, duration: number) => {
+    const id = `${lat},${lng}`; // Unique ID based on coordinates
 
     setCircleText((prev) => {
       if (prev.some(t => t.id === id)) return prev; // already exists, skip
 
-      setTimeout(() => {
-        setCircleText((prev) => prev.filter((t) => t.id !== id));
-      }, duration);
-
+      if (duration > 0) {
+        setTimeout(() => {
+          setCircleText((prev) => prev.filter((t) => t.id !== id));
+        }, duration);
+      }
 
 
       return [...prev, {
@@ -166,25 +192,10 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
         lng: ((lng + 180) / 360) * window.innerWidth,   // x axis
         lat: ((90 - lat) / 180) * window.innerHeight - 12,    // y axis, flipped (offset by 12px to avoid overlapping with circle)
         text,
+        fill: color,
       }];
     });
   }, []);
-
-
-  // clears the circle and text array every 10 seconds (FIX MEMORY LEAK LATER)
-
-  // useEffect(() => {
-
-  //   const intervalId = setInterval(() => {
-  //     setCircles([]);
-  //     setCircleText([]);
-  //     console.log("Cleared circles and texts to prevent memory leak");
-  //   }, 10000);
-
-  //   return () => {
-  //     clearInterval(intervalId);
-  //   };
-  // }, []);
 
 
   /**
@@ -192,7 +203,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
    * The dependency on `addCircle` ensures the exposed function updates if addCircle ever changes
    * (it won't here due to the empty useCallback dep array, but it's correct practice).
    */
-  useImperativeHandle(ref, () => ({ addPoint: addCircle, addText }), [addCircle, addText]);
+  useImperativeHandle(ref, () => ({ addPoint, addText }), [addPoint, addText]);
 
   return (
     // `position: relative` makes this div the anchor for CirclesOverlay's `position: absolute`

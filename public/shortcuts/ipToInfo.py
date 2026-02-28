@@ -17,18 +17,23 @@ def ip_to_int(ip):
 
 
 def ip_to_info(ip):
+    
     if ip in security_cache:
         return security_cache[ip]
-    ip_int = ip_to_int(ip)
+    
+    ip_int = ip_to_int(ip)  # convert dotted-decimal -> int
     if ip_int is None:
-        return
+        return {"security": "not found"}
+    
+
     for start, end, security in ip_db:
         if start <= ip_int <= end:
-            sec = {'security': security}
+            sec = {"security": security}
             security_cache[ip] = sec
             return sec
     
-
+    security_cache[ip] = {"security": "N/A"}  # cache the "not found" result
+    return {"security": "N/A"}  # only after checking ALL rows
 
 # Load CSV once
 
@@ -42,7 +47,7 @@ with open(os.getenv("CSV_IPINFO_PATH"), mode='r', newline='') as file:
             continue
 
 
-print(json.dumps({"status": "ready"}), flush=True)
+print(json.dumps({"status": "ready", "length": len(ip_db)}), flush=True)
 
 for line in sys.stdin:
     try:
