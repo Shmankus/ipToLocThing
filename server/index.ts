@@ -5,10 +5,26 @@ import { DESKTHING_EVENTS, SETTING_TYPES } from "@deskthing/types";
 import path from "path";
 import { createRequire } from 'module';
 import { spawn } from "child_process";
+import dotenv from "dotenv";
+import readline from "readline";
 const isDev = process.env.NODE_ENV === 'development';
+!isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' }); // In production, the client folder is bundled inside the server, so we need to look for the .env file there
+isDev && dotenv.config({ path: __dirname + '/../public/shortcuts/.env' }); // in dev the public folder is visible
+
+// ['-', 'BOTNET', 'SPAM/BOTNET', 'SPAM', 'SPAM/SCANNER/BOTNET', 'SCANNER', 'SCANNER/BOTNET', 'SPAM/SCANNER', 'BOGON', 'BOTNET/BOGON', 'SPAM/SCANNER/BOGON', 'SCANNER/BOGON']
 
 
+const safeSecurityTypes = ["-","N/A"] as const;
 
+const dangerousSecurityTypes = ["BOTNET", "SPAM/BOTNET", "SPAM", "SPAM/SCANNER/BOTNET", "SCANNER", "SCANNER/BOTNET", "SPAM/SCANNER", "BOGON", "BOTNET/BOGON", "SPAM/SCANNER/BOGON", "SCANNER/BOGON"] as const;
+
+type SecurityType = typeof safeSecurityTypes[number] | typeof dangerousSecurityTypes[number];
+
+
+type securityInfo = {
+    ip: string;
+    security: SecurityType;
+};
 
 // !===================== End DeskThing Event Handlers ===================!
 
@@ -17,52 +33,118 @@ export const start = async () => {
 
 
 
-const pythonProcess = spawn('python', [
-    'C:\\Users\\Shmank\\iptolocthing\\public\\shortcuts\\ipToLocation.py'
-], {
-    env: {
-        ...process.env,
-        ProgramFiles: process.env.ProgramFiles || 'C:\\Program Files',
-        'ProgramFiles(x86)': process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
-        ProgramW6432: process.env.ProgramW6432 || 'C:\\Program Files',
-    }
-});
+    // ======================================================= IP INFO GATHER SECTION =======================================================
 
-let buffer = '';
 
-pythonProcess.stdout.on('data', (data: any) => {
-    buffer += data.toString();
-    const lines = buffer.split('\n');
-    
-    // All lines except the last are complete
-    buffer = lines.pop() || '';
-    
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-            DeskThing.send({
-                type: "ipLocationUpdate",
-                payload: JSON.parse(trimmed),
-            });
-        } catch (error) {
-            console.error('Error parsing Python output:', error, 'Raw line:', trimmed);
+
+
+    DeskThing.sendFatal("Starting Python process for IP info");
+
+    const pythonIpInfo = spawn(process.env.PYTHON_VENV || 'python3', [
+        process.env.PYTHON_INFO_PATH || "ERROR" // path to the script, NOT the CSV
+    ], {
+        env: {
+            ...process.env,
+            ProgramFiles: process.env.ProgramFiles || 'C:\\Program Files',
+            'ProgramFiles(x86)': process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+            ProgramW6432: process.env.ProgramW6432 || 'C:\\Program Files',
         }
+    });
+
+    const rl = readline.createInterface({ input: pythonIpInfo.stdout });
+
+    // Queue to match responses to callers
+    const queue = [] as any;
+    rl.on("line", (line) => {
+        const data = JSON.parse(line);
+        if (queue.length > 0) {
+            const { resolve } = queue.shift();
+            resolve(data);
+        } else {
+            console.log("Python says:", data); // e.g. the initial "ready" message
+        }
+    });
+
+    pythonIpInfo.stderr.on("data", (d) => console.error("Python error:", d.toString()));
+
+
+
+    // Call a Python function by name
+    function callPython(fn: string, args = {}) {
+        return new Promise((resolve, reject) => {
+            queue.push({ resolve, reject });
+            pythonIpInfo.stdin.write(JSON.stringify({ fn, args }) + "\n");
+        });
     }
-});
-
-pythonProcess.stderr.on('data', (data: any) => {
-    console.error(`stderr: ${data}`);
-});
-
-pythonProcess.on('close', (code: any) => {
-    console.log(`Python process exited with code ${code}`);
-});
 
 
 
+    // ======================================================= IP INFO GATHER SECTION END =======================================================
+
+    // ======================================================= IP TO LOCATION SECTION =======================================================
 
 
+        const pythonProcess = spawn(process.env.PYTHON_VENV || 'ERROR', [
+            process.env.PYTHONPATH || path.join(__dirname, 'ERROR')
+        ], {
+            env: {
+                ...process.env,
+                ProgramFiles: process.env.ProgramFiles || 'C:\\Program Files',
+                'ProgramFiles(x86)': process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+                ProgramW6432: process.env.ProgramW6432 || 'C:\\Program Files',
+            }
+        });
+
+        let buffer = '';
+
+        pythonProcess.stdout.on('data', async (data: any) => {
+            buffer += data.toString();
+            const lines = buffer.split('\n');
+
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                try {
+
+                
+                    const security = await callPython("getSecurityIP", { "ip": JSON.parse(trimmed).ip }) as any;
+                    // if (dangerousSecurityTypes.includes(security.security)) {
+                    //     DeskThing.sendFatal(`Dangerous IP detected: ${security.ip}`);
+                    // } else {
+                    //     DeskThing.sendFatal(`Safe IP detected: ${security.ip}`);
+                    // }
+
+                    const parsed = JSON.parse(trimmed);
+                    parsed.security = security.security; // attach security info to the original payload
+
+                    DeskThing.send({
+                        type: "ipLocationUpdate",
+                        payload: parsed,
+                    });
+
+                    // DeskThing.sendFatal(`Received IP info: ${JSON.stringify(parsed)}`);
+
+
+
+
+                } catch (error) {
+                    console.error('Error parsing Python output:', error, 'Raw line:', trimmed);
+                }
+            }
+        });
+
+        pythonProcess.stderr.on('data', (data: any) => {
+            console.error(`stderr: ${data}`);
+        });
+
+        pythonProcess.on('close', (code: any) => {
+            console.log(`Python process exited with code ${code}`);
+        });
+
+
+    // ======================================================= IP TO LOCATION SECTION END =======================================================
 
 };
 

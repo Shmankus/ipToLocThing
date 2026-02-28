@@ -15,6 +15,7 @@
   "dependencies": {
     "@deskthing/client": "^0.10.14",
     "@deskthing/server": "^0.10.18",
+    "dotenv": "^17.3.1",
     "leaflet": "^1.9.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
