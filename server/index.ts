@@ -8,8 +8,8 @@ import dotenv from "dotenv";
 import readline from "readline";
 import os from "os";
 const isDev = process.env.NODE_ENV === 'development';
-!isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' }); // In production, the client folder is bundled inside the server, so we need to look for the .env file there
-isDev && dotenv.config({ path: __dirname + '/../public/shortcuts/.env' }); // in dev the public folder is visible
+// !isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' }); // In production, the client folder is bundled inside the server, so we need to look for the .env file there
+// isDev && dotenv.config({ path: __dirname + '/../public/shortcuts/.env' }); // in dev the public folder is visible
 
 const OS = os.platform(); // 'win32', 'darwin', 'linux', etc.
 

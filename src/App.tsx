@@ -3,7 +3,6 @@ import React, { useEffect, useRef } from "react";
 import { DeskThing } from "@deskthing/client";
 import 'leaflet/dist/leaflet.css';
 import MapComponentHandle, { type MapComponentHandle as MapComponentHandleType } from './mapComponent';
-
 const safeSecurityTypes = ["-", "N/A"] as const;
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -20,10 +19,7 @@ const ScreenViewer: React.FC = () => {
         safe ? 1000 : 0);
   };
 
-
-
   useEffect(() => {
-
     const handler = (msg: any) => {
       isDev && console.log(msg.payload.lat + ", " + msg.payload.lon + " - " + msg.payload.ip + " - " + msg.payload.security);
       try {
@@ -39,7 +35,6 @@ const ScreenViewer: React.FC = () => {
 
   return (
     <>
-
       <MapComponentHandle ref={mapRef} />
     </>
   );

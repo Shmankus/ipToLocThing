@@ -89,7 +89,7 @@ const CirclesOverlayWithText = memo(({ circles, texts }: { circles: TemporaryPoi
       // `key` uses the unique id so React can efficiently diff added/removed circles
       <circle key={c.id} cx={c.lng} cy={c.lat} r={c.r} fill={c.fill} />
     ))}
-    {(isDev) && texts.map((t) => (
+    {texts.map((t) => (
       <text key={t.id} x={t.lng} y={t.lat} fill={t.fill} fontSize="12" textAnchor="middle" alignmentBaseline="middle">
         {t.text}
       </text>
@@ -143,10 +143,10 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
         setTimeout(() => {
           setCircles((prev) => prev.filter((c) => c.id !== id));
         }, duration);
-      }
+      }else{
 
-      if (isDev || duration == 0)
-        addText(lat, lng, ip, color, duration); // Show coordinates as text label
+         addText(lat, lng, ip, color, duration); // Show coordinates as text label
+      }
 
       return [...prev, {
         id,
