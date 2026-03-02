@@ -13,6 +13,9 @@ const ScreenViewer: React.FC = () => {
 
   const [serverStatus, setServerStatus] = useState("stopped"); // 'loading', 'running', 'stopped'
 
+  const [locLookupTime, setLocLookupTime] = useState(0);
+  const [secLookupTime, setSecLookupTime] = useState(0);
+
 
 
   useEffect(() => {
@@ -68,9 +71,10 @@ const ScreenViewer: React.FC = () => {
   // Handles incoming data from server and updates the map accordingly
   useEffect(() => {
     const handler = (msg: any) => {
-      isDev && console.log(msg.payload.lat + ", " + msg.payload.lon + " - " + msg.payload.ip + " - " + msg.payload.security);
+      isDev && console.log(msg.payload);
       try {
         if (msg.payload.lat !== 0 || msg.payload.lon !== 0) { // Sometimes the geolocation API returns (0,0) for private IPs or when it fails to find a location. Ignore these.
+            setLocLookupTime(msg.payload.locLookupTime);
           handleAddPoint(msg.payload.lat, msg.payload.lon, msg.payload.ip, msg.payload.security);
         }
 
@@ -98,9 +102,17 @@ const ScreenViewer: React.FC = () => {
         <div className="absolute top-0 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10 backdrop-blur-lg bg-black/70">
           <div className="absolute top-0 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| Tap on screen to start |</div>
           <div className="absolute top-10 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| serverStatus: {serverStatus} |</div>
+
+
+         
           
         </div>
       )}
+       <div className="absolute bottom-5 left-5 h-[12.5vh] w-[33.3vh] bg-black/70 z-10">
+        <div className="text-white text-sm p-2">| Location Lookup Time: {locLookupTime.toFixed(2)}s |</div>
+        <div className="text-white text-sm p-2">| Security Lookup Time: {secLookupTime.toFixed(2)}s |</div>
+
+       </div>
       <MapComponentHandle ref={mapRef} />
     </div>
   );

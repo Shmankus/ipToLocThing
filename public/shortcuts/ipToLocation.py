@@ -1,4 +1,5 @@
 
+import datetime
 import sys
 import socket
 import struct
@@ -11,6 +12,7 @@ dotenv.load_dotenv()
 
 geo_cache = {}
 my_ip = get_if_addr(conf.iface)
+
 
 # Load CSV into memory at startup
 ip_db = []
@@ -30,7 +32,9 @@ def ip_to_int(ip):
         return None
 
 def get_geolocation_CSV(ip):
+    startTime = datetime.datetime.now()
     if ip in geo_cache:
+        endTime = datetime.datetime.now()
         return geo_cache[ip]
 
     ip_int = ip_to_int(ip)
@@ -39,7 +43,8 @@ def get_geolocation_CSV(ip):
 
     for start, end, lat, lon in ip_db:
         if start <= ip_int <= end:
-            location = {"lat": lat, "lon": lon, "ip": ip}
+            endTime = datetime.datetime.now()
+            location = {"lat": lat, "lon": lon, "ip": ip, "locLookupTime": (endTime - startTime).total_seconds()}
             geo_cache[ip] = location
             return location
 

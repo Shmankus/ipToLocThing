@@ -139,6 +139,8 @@ const startPythonProcess = () => {
                 const security = await callPython("getSecurityIP", { "ip": JSON.parse(trimmed).ip }) as any;
                 const parsed = JSON.parse(trimmed);
                 parsed.security = security.security;
+                parsed.locLookupTime = parsed.locLookupTime;
+
                 // sends all of the info to the client to be shown
                 DeskThing.send({
                     type: "ipLocationUpdate",
@@ -174,21 +176,26 @@ const stopPythonProcesses = () => {
 
 
 // function that gets called when deskthing server starts
-export const start = async () => {};
+export const start = async () => {
+
+    startPythonProcess();
+};
 
 // Handles focus updates from the client to start/stop python processes
-DeskThing.on("focusUpdate", (data: any) => {
-    if (data.payload) {
-        //DeskThing.sendFatal("focus message " + data.payload);
-        if (data.payload == "1" && (!pythonProcess || pythonProcess.killed) && (!pythonIpInfo || pythonIpInfo.killed)) {
-            //DeskThing.sendFatal("View focused, starting Python processes...");
-            startPythonProcess();
-        } else {
-            //DeskThing.sendFatal("View blurred, stopping Python processes...");
-            stopPythonProcesses();
-        }
-    }
-});
+
+
+// DeskThing.on("focusUpdate", (data: any) => {
+//     if (data.payload) {
+//         //DeskThing.sendFatal("focus message " + data.payload);
+//         if (data.payload == "1" && (!pythonProcess || pythonProcess.killed) && (!pythonIpInfo || pythonIpInfo.killed)) {
+//             //DeskThing.sendFatal("View focused, starting Python processes...");
+//             startPythonProcess();
+//         } else {
+//             //DeskThing.sendFatal("View blurred, stopping Python processes...");
+//             stopPythonProcesses();
+//         }
+//     }
+// });
 
 const stop = async () => {
 
