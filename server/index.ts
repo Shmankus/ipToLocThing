@@ -96,7 +96,13 @@ const startPythonProcess = () => {
 
     // Error handling that sends python errors to the DeskThing console
     pythonIpInfo.stderr.on("data", (d: any) => DeskThing.sendFatal(`Python stderr: ${d.toString()}`));
-    pythonIpInfo.on("exit", (code: any) => DeskThing.sendFatal(`Python exited with code: ${code}`));
+    pythonIpInfo.on("exit", (code: any) => {
+        DeskThing.sendFatal(`Python exited with code: ${code}`)
+        DeskThing.send({
+            type: "serverStatus",
+            payload: "ERROR", // Send the current focus state to the server
+        });
+    })
 
     // Calls the python function inside of ipToInfo to grab from the database when needed
     function callPython(fn: string, args = {}) {
@@ -137,8 +143,14 @@ const startPythonProcess = () => {
             try {
                 // calls the ipToInfo.py for cross referencing "dangerous" ip's
                 const security = await callPython("getSecurityIP", { "ip": JSON.parse(trimmed).ip }) as any;
+                //DeskThing.sendFatal(security);
                 const parsed = JSON.parse(trimmed);
                 parsed.security = security.security;
+                parsed.locLookupTime = parsed.locLookupTime;
+                parsed.locUniqueIps = parsed.locLookupTime[1];
+                parsed.secLookupTime = security.secLookupTime;
+                parsed.secUniqueIps = security.secLookupTime[1];
+
                 // sends all of the info to the client to be shown
                 DeskThing.send({
                     type: "ipLocationUpdate",
@@ -157,6 +169,10 @@ const startPythonProcess = () => {
     // python close call
     pythonProcess.on('close', (code: any) => {
         console.log(`Python process exited with code ${code}`);
+        DeskThing.send({
+            type: "serverStatus",
+            payload: "ERROR", // Send the current focus state to the server
+        });
     });
 };
 
@@ -174,9 +190,14 @@ const stopPythonProcesses = () => {
 
 
 // function that gets called when deskthing server starts
-export const start = async () => {};
+export const start = async () => {
+
+    // startPythonProcess();
+};
 
 // Handles focus updates from the client to start/stop python processes
+
+
 DeskThing.on("focusUpdate", (data: any) => {
     if (data.payload) {
         //DeskThing.sendFatal("focus message " + data.payload);

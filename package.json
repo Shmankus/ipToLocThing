@@ -16,10 +16,8 @@
     "@deskthing/client": "^0.10.14",
     "@deskthing/server": "^0.10.18",
     "dotenv": "^17.3.1",
-    "leaflet": "^1.9.4",
     "react": "^19.2.1",
-    "react-dom": "^19.2.1",
-    "react-offline-map": "^0.3.0"
+    "react-dom": "^19.2.1"
   },
   "devDependencies": {
     "@deskthing/cli": "^0.11.15",
@@ -41,7 +39,6 @@
     "autoprefixer": "^10.4.21",
     "concurrently": "^8.2.2",
     "cross-env": "^10.1.0",
-    "electron": "^37.3.0",
     "esbuild": "^0.19.2",
     "eslint": "^9.9.0",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
