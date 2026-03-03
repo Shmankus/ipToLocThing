@@ -168,7 +168,7 @@ const startPythonProcess = () => {
     });
 };
 
-let test = true;
+let test = false; // disables the stop when unfocus
 
 // Function that stops all python processes (both since they are linked)
 // also sends a stop message to client to update UI
