@@ -1,7 +1,7 @@
 // Deskthing
 import React, { useEffect, useRef, useState } from "react";
 import { DeskThing } from "@deskthing/client";
-import 'leaflet/dist/leaflet.css';
+// import 'leaflet/dist/leaflet.css';
 import MapComponentHandle, { type MapComponentHandle as MapComponentHandleType } from './mapComponent';
 const safeSecurityTypes = ["-", "N/A"] as const;
 
@@ -15,6 +15,8 @@ const ScreenViewer: React.FC = () => {
 
   const [locLookupTime, setLocLookupTime] = useState(0);
   const [secLookupTime, setSecLookupTime] = useState(0);
+  const [locUniqueIps, setLocUniqueIps] = useState(0);
+  const [secUniqueIps, setSecUniqueIps] = useState(0);
 
 
 
@@ -74,7 +76,10 @@ const ScreenViewer: React.FC = () => {
       isDev && console.log(msg.payload);
       try {
         if (msg.payload.lat !== 0 || msg.payload.lon !== 0) { // Sometimes the geolocation API returns (0,0) for private IPs or when it fails to find a location. Ignore these.
-            setLocLookupTime(msg.payload.locLookupTime);
+            setLocLookupTime(parseFloat(msg.payload.locLookupTime));
+            setSecLookupTime(parseFloat(msg.payload.secLookupTime));
+            setLocUniqueIps(parseFloat(msg.payload.locUniqueIps))
+            setSecUniqueIps(parseFloat(msg.payload.secUniqueIps))
           handleAddPoint(msg.payload.lat, msg.payload.lon, msg.payload.ip, msg.payload.security);
         }
 
@@ -103,14 +108,11 @@ const ScreenViewer: React.FC = () => {
           <div className="absolute top-0 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| Tap on screen to start |</div>
           <div className="absolute top-10 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| serverStatus: {serverStatus} |</div>
 
-
-         
-          
         </div>
       )}
-       <div className="absolute bottom-5 left-5 h-[12.5vh] w-[33.3vh] bg-black/70 z-10">
-        <div className="text-white text-sm p-2">| Location Lookup Time: {locLookupTime.toFixed(2)}s |</div>
-        <div className="text-white text-sm p-2">| Security Lookup Time: {secLookupTime.toFixed(2)}s |</div>
+       <div className="absolute bottom-5 left-5 h-auto w-auto bg-black/70 z-10 text-md text-white">
+        <div className=" p-2">| Location TTS: {locLookupTime.toFixed(3)}s | Unique IP's: {locUniqueIps}</div>
+        <div className=" p-2">| Security TTS: {secLookupTime.toFixed(3)}s | Unique IP's: {secUniqueIps}</div>
 
        </div>
       <MapComponentHandle ref={mapRef} />

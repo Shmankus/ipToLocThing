@@ -1,6 +1,6 @@
-import Map from 'react-offline-map';
+//import Map from 'react-offline-map';
 
-import { useState, forwardRef, useImperativeHandle, useCallback, memo, useMemo, useEffect } from 'react';
+import { useState, forwardRef, useImperativeHandle, useCallback, memo } from 'react';
 const isDev = process.env.NODE_ENV === 'development';
 
 interface TemporaryPoint {
@@ -42,30 +42,32 @@ export interface MapComponentHandle {
 
 }
 
-/**
- * A memoized, static map component that renders once and never re-renders.
- *
- * Wrapping in `memo` means React will skip re-rendering this component as long
- * as its props don't change. Since it receives no props, it only ever renders
- * on mount — preventing the expensive map tile rendering from firing every time
- * a circle is added or removed.
- *
- * Dimensions are captured once via `useMemo` with an empty dependency array,
- * ensuring window.innerWidth/Height are read only at mount time.
- */
-const StaticMap = memo(() => {
-  const width = useMemo(() => window.innerWidth, []);
-  const height = useMemo(() => window.innerHeight, []);
 
+// const StaticMap = memo(() => {
+//   const width = useMemo(() => window.innerWidth, []);
+//   const height = useMemo(() => window.innerHeight, []);
+
+//   return (
+//     <Map
+//       width={width}
+//       height={height}
+//       mapQuality={(isDev ? 'high' : 'low')}
+//     />
+//   );
+// });
+
+
+const StaticMap = memo(() => {
   return (
-    <Map
-      width={width}
-      height={height}
-      mapQuality={(isDev ? 'high' : 'low')}
-    />
+    <>
+      {isDev ? (
+        <img src="public/Icons/map.png" alt="dev map" style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
+      ) : (
+        <img src="Icons/map.png" alt="prod map" style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
+      )}
+    </>
   );
 });
-
 
 /**
  * A memoized SVG overlay that renders circles and optional text on top of the map.
@@ -143,9 +145,9 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
         setTimeout(() => {
           setCircles((prev) => prev.filter((c) => c.id !== id));
         }, duration);
-      }else{
+      } else {
 
-         addText(lat, lng, ip, color, duration); // Show coordinates as text label
+        addText(lat, lng, ip, color, duration); // Show coordinates as text label
       }
 
       return [...prev, {
@@ -206,18 +208,16 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
    * The dependency on `addCircle` ensures the exposed function updates if addCircle ever changes
    * (it won't here due to the empty useCallback dep array, but it's correct practice).
    */
-  useImperativeHandle(ref, () => ({ addPoint}), [addPoint]);
+  useImperativeHandle(ref, () => ({ addPoint }), [addPoint]);
 
+  // main return for the component
   return (
-    // `position: relative` makes this div the anchor for CirclesOverlay's `position: absolute`
-    <>
-      <div style={{ position: 'relative' }}>
-        {/* Hides built-in map toolbar and navigation controls via attribute selectors */}
-        <style>{`[role="toolbar"],[role="navigation"]{display:none!important}`}</style>
+    <div style={{ width: '100vw', height: '100vh' }}>
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
         <StaticMap />
+        <CirclesOverlayWithText circles={circles} texts={circleText} />
       </div>
-      <CirclesOverlayWithText circles={circles} texts={circleText} /> {/* Renders circles and text on top of the map, re-rendering only when these arrays change */}
-    </>
+    </div>
   );
 });
 
