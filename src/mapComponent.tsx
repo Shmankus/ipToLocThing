@@ -60,11 +60,7 @@ export interface MapComponentHandle {
 const StaticMap = memo(() => {
   return (
     <>
-      {isDev ? (
-        <img src="public/Icons/map.png" alt="dev map" style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
-      ) : (
-        <img src="Icons/map.png" alt="prod map" style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
-      )}
+        <img src="Icons/map_simple.png" alt="dev map" style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
     </>
   );
 });

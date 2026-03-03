@@ -98,10 +98,6 @@ const startPythonProcess = () => {
     pythonIpInfo.stderr.on("data", (d: any) => DeskThing.sendFatal(`Python stderr: ${d.toString()}`));
     pythonIpInfo.on("exit", (code: any) => {
         DeskThing.sendFatal(`Python exited with code: ${code}`)
-        DeskThing.send({
-            type: "serverStatus",
-            payload: "ERROR", // Send the current focus state to the server
-        });
     })
 
     // Calls the python function inside of ipToInfo to grab from the database when needed
@@ -169,30 +165,29 @@ const startPythonProcess = () => {
     // python close call
     pythonProcess.on('close', (code: any) => {
         console.log(`Python process exited with code ${code}`);
-        DeskThing.send({
-            type: "serverStatus",
-            payload: "ERROR", // Send the current focus state to the server
-        });
     });
 };
+
+let test = true;
 
 // Function that stops all python processes (both since they are linked)
 // also sends a stop message to client to update UI
 const stopPythonProcesses = () => {
-    if (pythonProcess && !pythonProcess.killed) pythonProcess.kill();
-    if (pythonIpInfo && !pythonIpInfo.killed) pythonIpInfo.kill();
-    DeskThing.send({
-        type: "serverStatus",
-        payload: "stopped", // Send the current focus state to the server
-    });
-
+    if (!test) {
+        if (pythonProcess && !pythonProcess.killed) pythonProcess.kill();
+        if (pythonIpInfo && !pythonIpInfo.killed) pythonIpInfo.kill();
+        DeskThing.send({
+            type: "serverStatus",
+            payload: "stopped", // Send the current focus state to the server
+        });
+    }
 };
 
 
 // function that gets called when deskthing server starts
 export const start = async () => {
 
-    // startPythonProcess();
+   test && startPythonProcess();
 };
 
 // Handles focus updates from the client to start/stop python processes

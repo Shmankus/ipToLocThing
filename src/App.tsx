@@ -103,7 +103,7 @@ const ScreenViewer: React.FC = () => {
   // Main view rendering
   return (
     <div className="w-screen h-screen  cursor-none pointer-events-none">
-      {(serverStatus === "loading" || serverStatus === "stopped") && (
+      {(serverStatus === "loading" || serverStatus === "stopped" || serverStatus === "ERROR") && (
         <div className="absolute top-0 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10 backdrop-blur-lg bg-black/70">
           <div className="absolute top-0 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| Tap on screen to start |</div>
           <div className="absolute top-10 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| serverStatus: {serverStatus} |</div>

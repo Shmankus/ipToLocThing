@@ -19,7 +19,7 @@ def saveAvgTime(startTime, endTime):
         avgTTC[0] = (endTime - startTime).total_seconds()
         avgTTC[1] = 1
     else:
-        avgTTC[0] = ((avgTTC[0] * avgTTC[1]) + (endTime - startTime).total_seconds()) / (avgTTC[1]+1)
+        avgTTC[0] = ((avgTTC[0] * avgTTC[1]) + (endTime - startTime).total_seconds()) / (avgTTC[1]+1) # avg calculation
         avgTTC[1]+=1
 
 # Load CSV into memory at startup
