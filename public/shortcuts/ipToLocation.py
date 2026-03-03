@@ -64,10 +64,26 @@ def get_geolocation_CSV(ip):
 # helper function that collects the ip from the packet and prints the json for nodejs
 def packet_callback(packet):
     if IP in packet:
-        if packet[IP].dst not in ['127.0.0.1', my_ip]:
-            destination_ip = packet[IP].dst
-            location = get_geolocation_CSV(destination_ip)
-            print(json.dumps(location))
-            sys.stdout.flush()
+        src = packet[IP].src
+        dst = packet[IP].dst
+        
+        # Outbound: we are the source, get the destination
+        if src == my_ip and dst not in ['127.0.0.1', my_ip]:
+            remote_ip = dst
+            
+        # Inbound: we are the destination, get the source
+        elif dst == my_ip and src not in ['127.0.0.1', my_ip]:
+            remote_ip = src
+            
+        else:
+            return
+
+        location = get_geolocation_CSV(remote_ip)
+
+        if location is None:  # IP not found in CSV (e.g. private/local IPs)
+            return
+        
+        print(json.dumps(location))
+        sys.stdout.flush()
 
 sniff(prn=packet_callback, store=0, filter="ip")
