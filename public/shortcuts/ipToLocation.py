@@ -40,6 +40,13 @@ def saveAvgTime(startTime, endTime):
         avgTTC[1]+=1
 
 
+# converts the decimal ip to the correct digit format
+def ip_to_int(ip):
+    try:
+        return struct.unpack("!I", socket.inet_aton(ip))[0]
+    except Exception:
+        return None   
+
 def get_geolocation_CSV(ip):
     """
     gets the geolocation data from the memory database
@@ -168,6 +175,8 @@ def packet_callback(packet):
             location["trace"] = trace_cache.get(external_ip, None)
             
             location["direction"] = direction
+
+            location["tracedIps"] = len(trace_cache)
             print(json.dumps(location))
             sys.stdout.flush()
 
@@ -184,12 +193,7 @@ with open(os.getenv("CSV_PATH"), mode='r', newline='') as file:
             continue
 print(json.dumps({"status": "ready", "length": len(ip_db)}), flush=True)
 
-# converts the decimal ip to the correct digit format
-def ip_to_int(ip):
-    try:
-        return struct.unpack("!I", socket.inet_aton(ip))[0]
-    except Exception:
-        return None            
+         
 
 ## constant packet sniff in real time
 sniff(prn=packet_callback, store=0, filter="ip")

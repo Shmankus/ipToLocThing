@@ -6,6 +6,8 @@ import MapComponentHandle, { type MapComponentHandle as MapComponentHandleType }
 
 const isDev = process.env.NODE_ENV === 'development';
 //'#' + (0x1000000 + Math.random() * 0xffffff).toString(16).substr(1, 6)
+let inColor = "rgba(0, 255, 255, .5)"
+let outColor = "rgba(255, 251, 0, 0.5)"
 
 // =================== Main ScreenViewer Component ===================
 const ScreenViewer: React.FC = () => {
@@ -14,9 +16,14 @@ const ScreenViewer: React.FC = () => {
 
     const [locLookupTime, setLocLookupTime] = useState(0);
     const [locUniqueIps, setLocUniqueIps] = useState(0);
+    const [tracedIps, setTracedIps] = useState(0);
 
 
-
+    /**
+* Creates listener for view changes 
+* @emits focusUpdate
+* @param payload - string of either 1 or 0 based on the view focus
+*/
     useEffect(() => {
         // Focus and blur event handlers to notify the server of the current focus state
         const handleFocus = () => {
@@ -52,36 +59,15 @@ const ScreenViewer: React.FC = () => {
 
     const mapRef = useRef<MapComponentHandleType>(null); // Ref to access MapComponent's API methods
 
+
+
     /**
-     * Handles the addition of a new point to the map based on the provided latitude, longitude, IP address, and security status.
-     * 
-     * @param lat - Latitude in degrees (-90 to 90)
-     * @param lng - Longitude in degrees (-180 to 180)
-     * @param ip - The IP address associated with the location update
-     * @param security - The security status of the IP (e.g., "safe", "unsafe", "N/A")
-     * @returns void
-     **/
-    const handleAddPoint = (lat: number, lng: number, ip: string, dir: string) => {
-
-        mapRef.current?.addPoint(lat, lng, ip, dir == "in" ? 'cyan' : "orange", 1000);
-    };
-
-
-        useEffect(() => {
-        const handler = (msg: any) => {
-            isDev && console.log(msg.payload);
-            try {
-                mapRef.current?.addPoint(msg.payload.ip, msg.payload.lat, msg.payload.lon, "white", 0);
-
-            }
-            catch (e) { console.error("Failed to parse localIP", e); }
-        };
-        return DeskThing.on("localIP", handler);
-    }, []);
-
-
-
-    // Handles incoming data from server and updates the map accordingly
+ * Subscribes to server updates and adds according routes and points, also updates any usestates
+ *
+ * @listens ipLocationUpdate
+ * @param msg.payload - JSON of all data coming from the server 
+ * {"lat": number, "lon": number, "ip": string, "locLookupTime": [], ping: number, trace: [], direction: 'in' 'out', tracedIps: number} 
+ */
     useEffect(() => {
         const handler = (msg: any) => {
             isDev && console.log(msg.payload);
@@ -90,6 +76,7 @@ const ScreenViewer: React.FC = () => {
                     setLocLookupTime(parseFloat(msg.payload.locLookupTime));
 
                     setLocUniqueIps(parseFloat(msg.payload.locUniqueIps))
+                    setTracedIps(msg.payload.tracedIps)
 
                     // If trace data is available then add a trace route, otherwise just add the single point for the packet
                     if (msg.payload.trace && msg.payload.trace.length > 1) {
@@ -98,12 +85,12 @@ const ScreenViewer: React.FC = () => {
                             msg.payload.lat,
                             msg.payload.lon,
                             msg.payload.ip,
-                            msg.payload.direction == "in" ? 'cyan' : "orange",
+                            msg.payload.direction == "in" ? inColor : outColor,
                             1000,
                             msg.payload.trace
                         )
                     } else {
-                        handleAddPoint(msg.payload.lat, msg.payload.lon, msg.payload.ip, msg.payload.direction);
+                        mapRef.current?.addPoint(msg.payload.lat, msg.payload.lon, msg.payload.ip, msg.payload.direction == "in" ? inColor : outColor, 1000);
                     }
                 }
 
@@ -133,7 +120,7 @@ const ScreenViewer: React.FC = () => {
     // Main view rendering
     return (
         <div className="w-screen h-screen  cursor-none pointer-events-none">
-            {(serverStatus === "loading" || serverStatus === "stopped" || serverStatus === "ERROR") && (
+            {(!isDev && (serverStatus === "loading" || serverStatus === "stopped" || serverStatus === "ERROR")) && (
                 <div className="absolute top-0 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10 backdrop-blur-lg bg-black/70">
                     <div className="absolute top-0 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| Tap on screen to start |</div>
                     <div className="absolute top-10 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| serverStatus: {serverStatus} |</div>
@@ -142,6 +129,8 @@ const ScreenViewer: React.FC = () => {
             )}
             <div className="absolute bottom-5 left-5 h-auto w-auto bg-black/70 z-10 text-md text-white">
                 <div className=" p-2">| Location TTS: {locLookupTime.toFixed(3)}s | Unique IP's: {locUniqueIps}</div>
+                <div className=" p-2">| Traced Ips: {tracedIps}</div>
+
 
             </div>
             <MapComponentHandle ref={mapRef} />

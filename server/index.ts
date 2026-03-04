@@ -65,8 +65,8 @@ const startPythonProcess = () => {
 
             // ignore the ready message
             if (parsed.status === "ready") {
+                DeskThing.sendFatal(parsed)
                 DeskThing.send({ type: "serverStatus", payload: "running" });
-                DeskThing.send({ type: "localIP", payload: { ip: parsed.localIP , lat: parsed.lat, lon: parsed.lon } });
                 return;
             }
             parsed.locUniqueIps = parsed.locLookupTime?.[1] || 0;
