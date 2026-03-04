@@ -19,6 +19,10 @@ ping_cache = {} # cache for ip's and their ping
 trace_cache = {} # cache for ip's and their traceroute info
 my_ip = get_if_addr(conf.iface) # used ip on device
 
+
+## GLOBALS
+MAX_TRACE_JUMPS = 10
+
 # saves the average time to search for the CSV file
 def saveAvgTime(startTime, endTime):
     """
@@ -108,7 +112,7 @@ def trace_and_cache(ip):
         ip The destination IP address in dotted-decimal format (e.g. '8.8.8.8')
     
     """
-    result, _ = traceroute(ip, maxttl=5, verbose=0)
+    result, _ = traceroute(ip, maxttl=MAX_TRACE_JUMPS, verbose=0)
     hops = []
     for snd, rcv in result:
         location = geo_cache.get(rcv.src) or get_geolocation_CSV(rcv.src)

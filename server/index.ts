@@ -39,7 +39,7 @@ switch (OS) {
  * Build: files in public is moved to client then /shortcuts/file
  */
 const startPythonProcess = () => {
- DeskThing.send({
+    DeskThing.send({
         type: "serverStatus",
         payload: "loading", // Send the current focus state to the server
     });
@@ -66,6 +66,7 @@ const startPythonProcess = () => {
             // ignore the ready message
             if (parsed.status === "ready") {
                 DeskThing.send({ type: "serverStatus", payload: "running" });
+                DeskThing.send({ type: "localIP", payload: { ip: parsed.localIP , lat: parsed.lat, lon: parsed.lon } });
                 return;
             }
             parsed.locUniqueIps = parsed.locLookupTime?.[1] || 0;
