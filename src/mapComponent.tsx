@@ -29,7 +29,7 @@ interface TraceLine {
   color: string;
 }
 
-
+const OPACITY = ".75";
 // adds functions to the MapComponentHandle
 export interface MapComponentHandle {
   addPoint: (lat: number, lng: number, ip: string, color: string, duration: number) => void;
@@ -281,7 +281,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
       id: `${traceId}-dest`,
       lng: ((lon + 180) / 360) * window.innerWidth,
       lat: ((90 - lat) / 180) * window.innerHeight,
-      r: 3,
+      r: 5,
       fill: color,
     });
 

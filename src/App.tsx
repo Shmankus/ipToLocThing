@@ -6,8 +6,8 @@ import MapComponentHandle, { type MapComponentHandle as MapComponentHandleType }
 
 const isDev = process.env.NODE_ENV === 'development';
 //'#' + (0x1000000 + Math.random() * 0xffffff).toString(16).substr(1, 6)
-let inColor = "rgba(0, 255, 255, .5)"
-let outColor = "rgba(255, 251, 0, 0.5)"
+let inColor = "rgba(0, 255, 255, .7)"
+let outColor = "rgba(255, 0, 0, 0.7)"
 
 // =================== Main ScreenViewer Component ===================
 const ScreenViewer: React.FC = () => {
