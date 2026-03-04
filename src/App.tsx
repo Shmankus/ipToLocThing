@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { DeskThing } from "@deskthing/client";
 // import 'leaflet/dist/leaflet.css';
 import MapComponentHandle, { type MapComponentHandle as MapComponentHandleType } from './mapComponent';
-const safeSecurityTypes = ["-", "N/A"] as const;
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -14,9 +13,7 @@ const ScreenViewer: React.FC = () => {
   const [serverStatus, setServerStatus] = useState("stopped"); // 'loading', 'running', 'stopped'
 
   const [locLookupTime, setLocLookupTime] = useState(0);
-  const [secLookupTime, setSecLookupTime] = useState(0);
   const [locUniqueIps, setLocUniqueIps] = useState(0);
-  const [secUniqueIps, setSecUniqueIps] = useState(0);
 
 
 
@@ -64,10 +61,9 @@ const ScreenViewer: React.FC = () => {
    * @param security - The security status of the IP (e.g., "safe", "unsafe", "N/A")
    * @returns void
    **/
-  const handleAddPoint = (lat: number, lng: number, ip: string, security: string) => {
-    const safe = safeSecurityTypes.includes(security as any);
-    mapRef.current?.addPoint(lat, lng, ip, safe ? 'orange' : 'red',
-      safe ? 1000 : 0);
+  const handleAddPoint = (lat: number, lng: number, ip: string, dir: string) => {
+
+    mapRef.current?.addPoint(lat, lng, ip, dir == "in" ? 'cyan' : "orange" ,1000);
   };
 
   // Handles incoming data from server and updates the map accordingly
@@ -76,11 +72,22 @@ const ScreenViewer: React.FC = () => {
       isDev && console.log(msg.payload);
       try {
         if (msg.payload.lat !== 0 || msg.payload.lon !== 0) { // Sometimes the geolocation API returns (0,0) for private IPs or when it fails to find a location. Ignore these.
-            setLocLookupTime(parseFloat(msg.payload.locLookupTime));
-            setSecLookupTime(parseFloat(msg.payload.secLookupTime));
-            setLocUniqueIps(parseFloat(msg.payload.locUniqueIps))
-            setSecUniqueIps(parseFloat(msg.payload.secUniqueIps))
-          handleAddPoint(msg.payload.lat, msg.payload.lon, msg.payload.ip, msg.payload.security);
+          setLocLookupTime(parseFloat(msg.payload.locLookupTime));
+ 
+          setLocUniqueIps(parseFloat(msg.payload.locUniqueIps))
+       
+          handleAddPoint(msg.payload.lat, msg.payload.lon, msg.payload.ip,msg.payload.direction);
+          if (msg.payload.trace) {
+           
+            mapRef.current?.addTraceRoute(
+              msg.payload.lat,
+              msg.payload.lon,
+              msg.payload.ip,
+              msg.payload.direction == "in" ? 'cyan' : "orange",
+              1000,
+              msg.payload.trace
+            )
+          }
         }
 
       }
@@ -89,7 +96,13 @@ const ScreenViewer: React.FC = () => {
     return DeskThing.on("ipLocationUpdate", handler);
   }, []);
 
-  // Handles incoming server status updates and updates the local state accordingly
+/**
+ * Subscribes to server status updates from the DeskThing server and updates local state.
+ * Cleans up the listener on component unmount via the returned unsubscribe function.
+ *
+ * @listens serverStatus
+ * @param msg.payload - The new server status string ('loading' | 'running' | 'stopped' | 'ERROR')
+ */
   useEffect(() => {
     const handler = (msg: any) => {
       if (msg.payload) {
@@ -110,11 +123,10 @@ const ScreenViewer: React.FC = () => {
 
         </div>
       )}
-       <div className="absolute bottom-5 left-5 h-auto w-auto bg-black/70 z-10 text-md text-white">
+      <div className="absolute bottom-5 left-5 h-auto w-auto bg-black/70 z-10 text-md text-white">
         <div className=" p-2">| Location TTS: {locLookupTime.toFixed(3)}s | Unique IP's: {locUniqueIps}</div>
-        <div className=" p-2">| Security TTS: {secLookupTime.toFixed(3)}s | Unique IP's: {secUniqueIps}</div>
 
-       </div>
+      </div>
       <MapComponentHandle ref={mapRef} />
     </div>
   );
