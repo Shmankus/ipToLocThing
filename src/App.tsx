@@ -13,12 +13,12 @@ let outColor = "rgba(255, 0, 0, 0.7)"
 const ScreenViewer: React.FC = () => {
 
     const [serverStatus, setServerStatus] = useState("stopped"); // 'loading', 'running', 'stopped'
-
     const [locLookupTime, setLocLookupTime] = useState(0);
     const [locUniqueIps, setLocUniqueIps] = useState(0);
     const [tracedIps, setTracedIps] = useState(0);
     const [totalPackets, setTotalPackets] = useState(0);
 
+    const mapRef = useRef<MapComponentHandleType>(null); // Ref to access MapComponent's API methods
 
     /**
 * Creates listener for view changes 
@@ -55,11 +55,6 @@ const ScreenViewer: React.FC = () => {
             window.removeEventListener('blur', handleBlur);
         };
     }, []);
-
-
-
-    const mapRef = useRef<MapComponentHandleType>(null); // Ref to access MapComponent's API methods
-
 
 
     /**
@@ -136,7 +131,7 @@ const ScreenViewer: React.FC = () => {
 
             </div>
             <div className="absolute bottom-5 right-5 h-auto w-auto bg-black/70 z-10 text-md text-white flex flex-row">
-               <div>| Incoming: </div> <div className=" " style={{ color: `${inColor}` }}>⬤</div>
+                <div>| Incoming: </div> <div className=" " style={{ color: `${inColor}` }}>⬤</div>
                 <div>| Outgoing: </div> <div className=" " style={{ color: `${outColor}` }}>⬤</div> <div>|</div>
 
             </div>

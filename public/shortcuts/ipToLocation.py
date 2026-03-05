@@ -179,12 +179,12 @@ def packet_callback(packet):
                 if external_ip not in trace_cache and external_ip not in pending_traces:
                     pending_traces.add(external_ip)
                     executor.submit(trace_and_cache, external_ip)
+
                 location["trace"] = trace_cache.get(external_ip, None)
-                
                 location["direction"] = direction
+                location["totalPackets"] = totalPackets
                 location["tracedIps"] = len(trace_cache)
                 totalPackets += 1
-                location["totalPackets"] = totalPackets
                 
                 print(json.dumps(location))
                 sys.stdout.flush()

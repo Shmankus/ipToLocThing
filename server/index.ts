@@ -25,9 +25,6 @@ switch (OS) {
         DeskThing.sendFatal("Python support is currently only implemented for Windows and MacOS.");
         break;
 }
-// !isDev && dotenv.config({ path: __dirname + '/../client/shortcuts/.env' }); // In production, the client folder is bundled inside the server, so we need to look for the .env file there
-// isDev && dotenv.config({ path: __dirname + '/../public/shortcuts/.env' }); // in dev the public folder is visible
-
 
 /**
  * Starts the python process and reads all lines from the stdout
