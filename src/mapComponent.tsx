@@ -338,8 +338,6 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
      */
     useImperativeHandle(ref, () => ({ addPoint, addTraceRoute }), [addPoint, addTraceRoute]);
 
-
-
     // Interval that wipes all refs in order to preserve memory in case of leaks
     // FIX MEMORY LEAKS
     useEffect(() => {

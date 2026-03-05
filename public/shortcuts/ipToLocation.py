@@ -166,8 +166,8 @@ def packet_callback(packet):
                 else:
                     location = get_geolocation_CSV(external_ip)
                 
-                # Add this check to prevent NoneType errors
-                if location is None:
+                # Add this check to prevent NoneType errors or 
+                if location is None or location["lat"] == 0 or location["lon"] == 0:
                     return
 
                 # Kick off ping in background if not already cached or pending
@@ -200,9 +200,7 @@ with open(os.getenv("CSV_PATH"), mode='r', newline='') as file:
             ip_db.append((int(row[0]), int(row[1]), float(row[6]), float(row[7])))
         except (ValueError, IndexError):
             continue
-print(json.dumps({"status": "ready", "length": len(ip_db)}), flush=True)
-
-         
+print(json.dumps({"status": "ready"}), flush=True) # ready flag for nodejs
 
 ## constant packet sniff in real time
 sniff(prn=packet_callback, store=0, filter="ip")

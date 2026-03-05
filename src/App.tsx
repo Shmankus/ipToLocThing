@@ -68,7 +68,7 @@ const ScreenViewer: React.FC = () => {
         const handler = (msg: any) => {
             isDev && console.log(msg.payload);
             try {
-                if (msg.payload.lat !== 0 || msg.payload.lon !== 0) { // Sometimes the geolocation API returns (0,0) for private IPs or when it fails to find a location. Ignore these.
+                if (msg.payload) { // Sometimes the geolocation API returns (0,0) for private IPs or when it fails to find a location. Ignore these.
                     setLocLookupTime(parseFloat(msg.payload.locLookupTime));
 
                     setLocUniqueIps(parseFloat(msg.payload.locUniqueIps))
