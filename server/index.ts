@@ -76,8 +76,20 @@ const startPythonProcess = () => {
                 payload: parsed,
             });
         } catch (error) {
-            console.error('Error parsing Python output:', error, 'Raw line:', trimmed);
+            DeskThing.sendFatal('Error parsing Python output:' +  error +  'Raw line:' +  trimmed);
         }
+    });
+
+    pythonProcess.stderr.on("data", (data : Buffer) => {
+        isDev && DeskThing.sendFatal(`Python error: ${data}`);
+    });
+
+    pythonProcess.on("close", (code : number) => {
+        DeskThing.send({
+            type: "serverStatus",
+            payload: "stopped",
+        });
+        isDev && DeskThing.sendFatal(`Python process exited with code ${code}`);
     });
 };
 

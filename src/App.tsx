@@ -17,6 +17,7 @@ const ScreenViewer: React.FC = () => {
     const [locLookupTime, setLocLookupTime] = useState(0);
     const [locUniqueIps, setLocUniqueIps] = useState(0);
     const [tracedIps, setTracedIps] = useState(0);
+    const [totalPackets, setTotalPackets] = useState(0);
 
 
     /**
@@ -77,6 +78,7 @@ const ScreenViewer: React.FC = () => {
 
                     setLocUniqueIps(parseFloat(msg.payload.locUniqueIps))
                     setTracedIps(msg.payload.tracedIps)
+                    setTotalPackets(msg.payload.totalPackets)
 
                     // If trace data is available then add a trace route, otherwise just add the single point for the packet
                     if (msg.payload.trace && msg.payload.trace.length > 1) {
@@ -130,7 +132,12 @@ const ScreenViewer: React.FC = () => {
             <div className="absolute bottom-5 left-5 h-auto w-auto bg-black/70 z-10 text-md text-white">
                 <div className=" p-2">| Location TTS: {locLookupTime.toFixed(3)}s | Unique IP's: {locUniqueIps}</div>
                 <div className=" p-2">| Traced Ips: {tracedIps}</div>
+                <div className=" p-2">| Total Packets: {totalPackets}</div>
 
+            </div>
+            <div className="absolute bottom-5 right-5 h-auto w-auto bg-black/70 z-10 text-md text-white flex flex-row">
+               <div>| Incoming: </div> <div className=" " style={{ color: `${inColor}` }}>⬤</div>
+                <div>| Outgoing: </div> <div className=" " style={{ color: `${outColor}` }}>⬤</div> <div>|</div>
 
             </div>
             <MapComponentHandle ref={mapRef} />

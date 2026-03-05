@@ -20,6 +20,8 @@ trace_cache = {} # cache for ip's and their traceroute info
 my_ip = get_if_addr(conf.iface) # used ip on device
 
 
+totalPackets = 0
+
 ## GLOBALS
 MAX_TRACE_JUMPS = 10
 
@@ -150,35 +152,42 @@ def packet_callback(packet):
     then print everything as json for nodejs to see
     
     """
+    global totalPackets
     if IP in packet:
-        src = packet[IP].src
-        dst = packet[IP].dst
-        
-        external_ip = dst if src == my_ip else src
-        direction = "out" if src == my_ip else "in"
-
-        if external_ip not in ['127.0.0.1', my_ip]:
-            if external_ip in geo_cache:
-                location = geo_cache[external_ip]
-            else:
-                location = get_geolocation_CSV(external_ip)
-
-            # Kick off ping in background if not already cached or pending
-            if external_ip not in ping_cache and external_ip not in pending_pings:
-                pending_pings.add(external_ip)
-                executor.submit(ping_and_cache, external_ip)
-            location["ping"] = ping_cache.get(external_ip, None)  # None if still pending
+            src = packet[IP].src
+            dst = packet[IP].dst
             
-            if external_ip not in trace_cache and external_ip not in pending_traces:
-                pending_traces.add(external_ip)
-                executor.submit(trace_and_cache, external_ip)
-            location["trace"] = trace_cache.get(external_ip, None)
-            
-            location["direction"] = direction
+            external_ip = dst if src == my_ip else src
+            direction = "out" if src == my_ip else "in"
 
-            location["tracedIps"] = len(trace_cache)
-            print(json.dumps(location))
-            sys.stdout.flush()
+            if external_ip not in ['127.0.0.1', my_ip]:
+                if external_ip in geo_cache:
+                    location = geo_cache[external_ip]
+                else:
+                    location = get_geolocation_CSV(external_ip)
+                
+                # Add this check to prevent NoneType errors
+                if location is None:
+                    return
+
+                # Kick off ping in background if not already cached or pending
+                if external_ip not in ping_cache and external_ip not in pending_pings:
+                    pending_pings.add(external_ip)
+                    executor.submit(ping_and_cache, external_ip)
+                location["ping"] = ping_cache.get(external_ip, None)
+                
+                if external_ip not in trace_cache and external_ip not in pending_traces:
+                    pending_traces.add(external_ip)
+                    executor.submit(trace_and_cache, external_ip)
+                location["trace"] = trace_cache.get(external_ip, None)
+                
+                location["direction"] = direction
+                location["tracedIps"] = len(trace_cache)
+                totalPackets += 1
+                location["totalPackets"] = totalPackets
+                
+                print(json.dumps(location))
+                sys.stdout.flush()
 
 
 # Load CSV into memory at startup
