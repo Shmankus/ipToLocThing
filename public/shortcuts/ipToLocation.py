@@ -230,7 +230,6 @@ def on_signal(sig, frame):
 
 if is_dev:
     signal.signal(signal.SIGTERM, on_signal)
-    signal.signal(signal.SIGINT, on_signal)
 
 atexit.register(on_exit)
 
