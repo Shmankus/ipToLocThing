@@ -8,8 +8,9 @@ from scapy.all import get_if_addr, sniff, IP, conf, ICMP, sr1, traceroute
 import csv
 import time
 from concurrent.futures import ThreadPoolExecutor
-
+import signal
 import os
+import atexit
 import dotenv
 dotenv.load_dotenv()
 executor = ThreadPoolExecutor(max_workers=10)
@@ -19,12 +20,23 @@ ping_cache = {} # cache for ip's and their ping
 trace_cache = {} # cache for ip's and their traceroute info
 my_ip = get_if_addr(conf.iface) # used ip on device
 
-
+is_dev = '--dev' in sys.argv
 totalPackets = 0
 
 ## GLOBALS
-MAX_TRACE_JUMPS = 10
+MAX_TRACE_JUMPS = 10      
 
+
+def create_log_file(base_dir: str) -> str:
+    os.makedirs(base_dir, exist_ok=True)  # creates the directory if it doesn't exist
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join(base_dir, f"log_{timestamp}.json")
+    open(filepath, 'w').close()
+    return filepath
+
+def append_to_log(filepath: str, entry: dict) -> None:
+    with open(filepath, 'a') as f:
+        f.write(json.dumps(entry) +  '\n')
 # saves the average time to search for the CSV file
 def saveAvgTime(startTime, endTime):
     """
@@ -165,8 +177,9 @@ def packet_callback(packet):
                     location = geo_cache[external_ip]
                 else:
                     location = get_geolocation_CSV(external_ip)
+                    
                 
-                # Add this check to prevent NoneType errors or 
+                # Add this check to prevent NoneType errors
                 if location is None or location["lat"] == 0 or location["lon"] == 0:
                     return
 
@@ -184,6 +197,7 @@ def packet_callback(packet):
                 location["direction"] = direction
                 location["totalPackets"] = totalPackets
                 location["tracedIps"] = len(trace_cache)
+                
                 totalPackets += 1
                 
                 print(json.dumps(location))
@@ -200,7 +214,26 @@ with open(os.getenv("CSV_PATH"), mode='r', newline='') as file:
             ip_db.append((int(row[0]), int(row[1]), float(row[6]), float(row[7])))
         except (ValueError, IndexError):
             continue
-print(json.dumps({"status": "ready"}), flush=True) # ready flag for nodejs
+print(json.dumps({"status": "ready", "length": len(ip_db)}), flush=True)
+
+log_file = None
+
+def on_exit():
+    if is_dev:
+        log_file = create_log_file("logs")
+        append_to_log(log_file, {"geo_cache": list(geo_cache.values())})
+    executor.shutdown(wait=False)
+
+def on_signal(sig, frame):
+    on_exit()
+    sys.exit(0)
+
+if is_dev:
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+
+atexit.register(on_exit)
 
 ## constant packet sniff in real time
 sniff(prn=packet_callback, store=0, filter="ip")
+

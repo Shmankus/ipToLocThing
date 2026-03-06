@@ -41,7 +41,8 @@ const startPythonProcess = () => {
         payload: "loading", // Send the current focus state to the server
     });
     pythonProcess = spawn(pythonVenvPath, [
-        isDev ? path.join(__dirname, '../public/shortcuts/ipToLocation.py') : path.join(__dirname, '../client/shortcuts/ipToLocation.py') || "ERROR" // path to the script
+        isDev ? path.join(__dirname, '../public/shortcuts/ipToLocation.py') : path.join(__dirname, '../client/shortcuts/ipToLocation.py') || "ERROR", // path to the script
+        isDev ? '--dev' : '--prod' 
     ], {
         // idk if this is needed aswell
         env: {

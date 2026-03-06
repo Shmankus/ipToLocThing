@@ -114,24 +114,24 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
 
 
     /**
-  * Adds a temporary trace given the locations of the trace array
-  * 
-  * @param lat - Latitude in degrees (-90 to 90)
-  * @param lng - Longitude in degrees (-180 to 180)
-  * @param ip - IP address used for throttle deduplication
-  * @param color - CSS color string for the text fill (e.g. 'white', '#FF0000')
-  * @param duration - Time in milliseconds before the text is removed. Pass 0 to keep permanently.
-  * 
-  * @remarks
-  * Throttled per IP — will silently skip if the same IP was seen within THROTTLE_MS.
-  * Coordinates are converted from degrees to pixel positions using the current window size.
-  * Y axis is flipped and offset by 12px to avoid overlapping with circle markers.
-  **/
-    const addPoint = useCallback((lat: number, lng: number, ip: string, color: string, duration: number) => {
-        const now = Date.now();
-        const lastSeen = lastSeenRef.current.get(ip) || 0;
-        if (now - lastSeen < THROTTLE_MS) return; // skip if seen recently
-        lastSeenRef.current.set(ip, now);
+* Adds a temporary trace given the locations of the trace array
+* 
+* @param lat - Latitude in degrees (-90 to 90)
+* @param lng - Longitude in degrees (-180 to 180)
+* @param ip - IP address used for throttle deduplication
+* @param color - CSS color string for the text fill (e.g. 'white', '#FF0000')
+* @param duration - Time in milliseconds before the text is removed. Pass 0 to keep permanently.
+* 
+* @remarks
+* Throttled per IP — will silently skip if the same IP was seen within THROTTLE_MS.
+* Coordinates are converted from degrees to pixel positions using the current window size.
+* Y axis is flipped and offset by 12px to avoid overlapping with circle markers.
+**/
+  const addPoint = useCallback((lat: number, lng: number, ip: string, color: string, duration: number) => {
+    const now = Date.now();
+    const lastSeen = lastSeenRef.current.get(ip) || 0;
+    if (now - lastSeen < THROTTLE_MS) return; // skip if seen recently
+    lastSeenRef.current.set(ip, now);
 
         const id = `${ip}-${now}`;
         const point = {
