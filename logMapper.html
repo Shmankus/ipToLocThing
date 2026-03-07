@@ -1,9 +1,781 @@
 <!DOCTYPE html>
 <html>
+<head>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        body {
+            position: relative;
+        }
+
+        #map-wrap {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #map-image {
+            width: 100%;
+            height: 100%;
+            object-fit: fill;
+            display: block;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: auto;
+        }
+
+        .trace-segment,
+        .trace-hop {
+            pointer-events: none;
+        }
+
+        .dest-point {
+            cursor: pointer;
+        }
+
+        .dest-point.selected {
+            stroke: #fff;
+            stroke-width: 1.5;
+        }
+
+        #status {
+            position: fixed;
+            left: 10px;
+            top: 10px;
+            z-index: 10;
+            padding: 6px 8px;
+            background: rgba(0, 0, 0, 0.68);
+            color: #fff;
+            font: 11px/1.3 monospace;
+            border-radius: 6px;
+            max-width: min(60vw, 420px);
+            white-space: pre-wrap;
+        }
+
+        #inspector {
+            position: fixed;
+            right: 0;
+            top: 0;
+            z-index: 10;
+            width: min(92vw, 400px);
+            height: 100vh;
+            box-sizing: border-box;
+            padding: 12px;
+            background: rgba(10, 10, 10, 0.84);
+            backdrop-filter: blur(3px);
+            color: #fff;
+            font: 12px/1.35 monospace;
+            border-left: 1px solid rgba(255, 255, 255, 0.18);
+            overflow: auto;
+        }
+        
+        #inspector.hidden {
+            display: none;
+        }
+
+        #inspector h3 {
+            margin: 0 0 8px;
+            font-size: 13px;
+        }
+
+        #inspector .muted {
+            opacity: 0.7;
+        }
+
+        #inspector .row {
+            margin: 2px 0;
+        }
+
+        #inspector .section {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        #inspector .button-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        #inspector button {
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            border-radius: 6px;
+            font: inherit;
+            padding: 4px 7px;
+            cursor: pointer;
+        }
+
+        #inspector button:hover {
+            background: rgba(255, 255, 255, 0.16);
+        }
+
+        #inspector .hop-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 46vh;
+            overflow: auto;
+        }
+
+        #inspector pre {
+            margin: 0;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
 <body>
+    <div id="map-wrap">
+        <img id="map-image" src="public/Icons/map_simple.png" alt="dev map" />
+        <svg id="overlay"></svg>
+    </div>
+    <div id="status">Loading log JSON...</div>
+    <aside id="inspector" class="hidden">
+        <h3>Inspector</h3>
+        <div id="inspector-content" class="muted">Click a colored point to inspect its route.</div>
+    </aside>
 
-<h1>My First Heading</h1>
-<p>My first paragraph.</p>
+    <script>
+        const SVG_NS = "http://www.w3.org/2000/svg";
+        const ENTRY_FIELD_ORDER = ["ip", "direction", "country", "province", "ping", "totalPackets", "tracedIps"];
+        const HOP_FIELD_ORDER = ["ip", "ttl", "rtt", "country", "province", "lat", "lon"];
+        let loadedData = null;
+        let activeLogPath = "";
+        let plottedDestinations = [];
+        let selectedEntries = [];
+        let selectedEntryIndex = 0;
+        let selectedHopIndex = null;
+        let selectedEntryIps = new Set();
+        let highlightedEntryIp = null;
 
+        function toFiniteNumber(value) {
+            const num = typeof value === "number" ? value : Number(value);
+            return Number.isFinite(num) ? num : null;
+        }
+
+        function isNumber(value) {
+            return typeof value === "number" && Number.isFinite(value);
+        }
+
+        function normalizePoint(point) {
+            if (!point || typeof point !== "object") {
+                return null;
+            }
+
+            return {
+                ...point,
+                lat: toFiniteNumber(point.lat),
+                lon: toFiniteNumber(point.lon)
+            };
+        }
+
+        function normalizeEntry(entry) {
+            if (!entry || typeof entry !== "object") {
+                return null;
+            }
+
+            let lat = toFiniteNumber(entry.lat);
+            let lon = toFiniteNumber(entry.lon);
+
+            // Backward compatibility for logs produced while country/province were swapped with lat/lon.
+            if (lat === null || lon === null) {
+                const legacyLat = toFiniteNumber(entry.country);
+                const legacyLon = toFiniteNumber(entry.province);
+                if (legacyLat !== null && legacyLon !== null) {
+                    lat = legacyLat;
+                    lon = legacyLon;
+                }
+            }
+
+            let country = typeof entry.country === "string" ? entry.country : null;
+            let province = typeof entry.province === "string" ? entry.province : null;
+            if (!country && typeof entry.lat === "string") {
+                country = entry.lat;
+            }
+            if (!province && typeof entry.lon === "string") {
+                province = entry.lon;
+            }
+
+            const trace = Array.isArray(entry.trace)
+                ? entry.trace.map(normalizePoint).filter(Boolean)
+                : [];
+
+            return {
+                ...entry,
+                lat,
+                lon,
+                country: country || "n/a",
+                province: province || "n/a",
+                trace
+            };
+        }
+
+        function hasLatLon(point) {
+            return point && isNumber(point.lat) && isNumber(point.lon);
+        }
+
+        function hasRenderableLatLon(point) {
+            return hasLatLon(point) && point.lat !== 0 && point.lon !== 0;
+        }
+
+        function lonToX(lon, width) {
+            return ((lon + 180) / 360) * width;
+        }
+
+        function latToY(lat, height) {
+            return ((90 - lat) / 180) * height;
+        }
+
+        function lerp(a, b, t) {
+            return Math.round(a + ((b - a) * t));
+        }
+
+        function makeGradientColor(t) {
+            const start = { r: 190, g: 50, b: 50 };  // lighter red (start of path)
+            const end = { r: 90, g: 0, b: 0 };       // dark red (end of path)
+            return "rgba(" +
+                lerp(start.r, end.r, t) + ", " +
+                lerp(start.g, end.g, t) + ", " +
+                lerp(start.b, end.b, t) + ", 0.98)";
+        }
+
+        function drawMidArrow(svg, x1, y1, x2, y2, color) {
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            const mx = (x1 + x2) / 2;
+            const my = (y1 + y2) / 2;
+            const length = 10;
+            const width = 6;
+
+            const tipX = mx + Math.cos(angle) * (length / 2);
+            const tipY = my + Math.sin(angle) * (length / 2);
+            const backX = mx - Math.cos(angle) * (length / 2);
+            const backY = my - Math.sin(angle) * (length / 2);
+            const nx = Math.cos(angle + Math.PI / 2) * (width / 2);
+            const ny = Math.sin(angle + Math.PI / 2) * (width / 2);
+
+            const arrow = document.createElementNS(SVG_NS, "polygon");
+            arrow.setAttribute("class", "trace-arrow");
+            arrow.setAttribute(
+                "points",
+                tipX + "," + tipY + " " +
+                (backX + nx) + "," + (backY + ny) + " " +
+                (backX - nx) + "," + (backY - ny)
+            );
+            arrow.setAttribute("fill", color);
+            arrow.setAttribute("fill-opacity", "0.98");
+            svg.appendChild(arrow);
+            return arrow;
+        }
+
+        function drawLine(svg, x1, y1, x2, y2, color, width) {
+            const line = document.createElementNS(SVG_NS, "line");
+            line.setAttribute("class", "trace-segment");
+            line.setAttribute("x1", String(x1));
+            line.setAttribute("y1", String(y1));
+            line.setAttribute("x2", String(x2));
+            line.setAttribute("y2", String(y2));
+            line.setAttribute("stroke", color);
+            line.setAttribute("stroke-width", String(width));
+            line.setAttribute("stroke-opacity", "0.6");
+            svg.appendChild(line);
+            return line;
+        }
+
+        function drawCircle(svg, x, y, radius, fill, className) {
+            const circle = document.createElementNS(SVG_NS, "circle");
+            if (className) {
+                circle.setAttribute("class", className);
+            }
+            circle.setAttribute("cx", String(x));
+            circle.setAttribute("cy", String(y));
+            circle.setAttribute("r", String(radius));
+            circle.setAttribute("fill", fill);
+            svg.appendChild(circle);
+            return circle;
+        }
+
+        function setInspectorEmpty() {
+            const inspector = document.getElementById("inspector");
+            const inspectorEl = document.getElementById("inspector-content");
+            inspector.classList.add("hidden");
+            inspectorEl.classList.add("muted");
+            inspectorEl.textContent = "Click a colored point to inspect its route.";
+        }
+
+        function appendRow(parent, label, value) {
+            const row = document.createElement("div");
+            row.className = "row";
+            row.textContent = label + ": " + value;
+            parent.appendChild(row);
+        }
+
+        function keyToLabel(key) {
+            return String(key)
+                .replace(/([A-Z])/g, " $1")
+                .replace(/_/g, " ")
+                .replace(/^./, function (s) { return s.toUpperCase(); });
+        }
+
+        function formatFieldValue(key, value) {
+            if (value === null || value === undefined || value === "") {
+                return "n/a";
+            }
+            if (key === "rtt") {
+                return String(value) + " ms";
+            }
+            if (typeof value === "object") {
+                return JSON.stringify(value);
+            }
+            return String(value);
+        }
+
+        function renderObjectFields(parent, obj, preferredOrder, hiddenKeys) {
+            const used = new Set();
+            const hidden = new Set(hiddenKeys || []);
+
+            for (const key of preferredOrder) {
+                if (!(key in obj) || hidden.has(key)) {
+                    continue;
+                }
+                appendRow(parent, keyToLabel(key), formatFieldValue(key, obj[key]));
+                used.add(key);
+            }
+
+            const extraKeys = Object.keys(obj)
+                .filter(function (key) { return !used.has(key) && !hidden.has(key); })
+                .sort();
+            for (const key of extraKeys) {
+                appendRow(parent, keyToLabel(key), formatFieldValue(key, obj[key]));
+            }
+        }
+
+        function renderInspector() {
+            const inspector = document.getElementById("inspector");
+            const inspectorEl = document.getElementById("inspector-content");
+            inspectorEl.innerHTML = "";
+            inspectorEl.classList.remove("muted");
+
+            if (!selectedEntries || selectedEntries.length === 0) {
+                setInspectorEmpty();
+                return;
+            }
+            inspector.classList.remove("hidden");
+
+            const entry = selectedEntries[selectedEntryIndex];
+            const trace = Array.isArray(entry.trace) ? entry.trace : [];
+
+            const navRow = document.createElement("div");
+            navRow.className = "button-row";
+            if (selectedHopIndex !== null) {
+                const backBtn = document.createElement("button");
+                backBtn.textContent = "Back To Entry";
+                backBtn.addEventListener("click", function () {
+                    selectedHopIndex = null;
+                    renderInspector();
+                });
+                navRow.appendChild(backBtn);
+            } else if (selectedEntries.length > 1) {
+                const prevBtn = document.createElement("button");
+                prevBtn.textContent = "Prev Entry";
+                prevBtn.addEventListener("click", function () {
+                    selectedEntryIndex = (selectedEntryIndex - 1 + selectedEntries.length) % selectedEntries.length;
+                    highlightedEntryIp = selectedEntries[selectedEntryIndex]?.ip || null;
+                    applyTraceHighlight();
+                    renderInspector();
+                });
+                const nextBtn = document.createElement("button");
+                nextBtn.textContent = "Next Entry";
+                nextBtn.addEventListener("click", function () {
+                    selectedEntryIndex = (selectedEntryIndex + 1) % selectedEntries.length;
+                    highlightedEntryIp = selectedEntries[selectedEntryIndex]?.ip || null;
+                    applyTraceHighlight();
+                    renderInspector();
+                });
+                navRow.appendChild(prevBtn);
+                navRow.appendChild(nextBtn);
+            }
+            if (navRow.children.length > 0) {
+                inspectorEl.appendChild(navRow);
+            }
+
+            const title = document.createElement("h3");
+            title.textContent = "Entry " + (selectedEntryIndex + 1) + " / " + selectedEntries.length;
+            inspectorEl.appendChild(title);
+
+            if (selectedHopIndex !== null) {
+                const hop = trace[selectedHopIndex] || {};
+                appendRow(inspectorEl, "Hop #", selectedHopIndex + 1);
+                renderObjectFields(inspectorEl, hop, HOP_FIELD_ORDER, []);
+                return;
+            }
+
+            renderObjectFields(inspectorEl, entry, ENTRY_FIELD_ORDER, ["trace", "locLookupTime"]);
+            appendRow(inspectorEl, "Lat, Lon", (entry.lat ?? "n/a") + ", " + (entry.lon ?? "n/a"));
+            appendRow(inspectorEl, "Trace Hops", trace.length);
+
+            const hopsSection = document.createElement("div");
+            hopsSection.className = "section";
+            const hopsTitle = document.createElement("div");
+            hopsTitle.textContent = "Trace IPs (click for hop details)";
+            hopsSection.appendChild(hopsTitle);
+
+            if (trace.length === 0) {
+                const none = document.createElement("div");
+                none.className = "muted";
+                none.textContent = "No trace data";
+                hopsSection.appendChild(none);
+            } else {
+                const hopList = document.createElement("div");
+                hopList.className = "hop-list";
+                for (let hopIndex = 0; hopIndex < trace.length; hopIndex++) {
+                    const hop = trace[hopIndex] || {};
+                    const hopBtn = document.createElement("button");
+                    const hopLocation = [hop.country, hop.province].filter(Boolean).join(", ");
+                    hopBtn.textContent = "[" + (hopIndex + 1) + "] " + (hop.ip || "n/a") + (hopLocation ? " - " + hopLocation : "");
+                    hopBtn.addEventListener("click", function () {
+                        selectedHopIndex = hopIndex;
+                        renderInspector();
+                    });
+                    hopList.appendChild(hopBtn);
+                }
+                hopsSection.appendChild(hopList);
+            }
+
+            inspectorEl.appendChild(hopsSection);
+        }
+
+        function applyTraceHighlight() {
+            const hasSelection = Boolean(highlightedEntryIp);
+            const svg = document.getElementById("overlay");
+            const defs = svg.querySelector("defs");
+            svg.querySelectorAll(".trace-arrow").forEach(function (node) { node.remove(); });
+            if (defs) {
+                defs.innerHTML = "";
+            }
+
+            for (const plotted of plottedDestinations) {
+                const selected = hasSelection && plotted.entry.ip === highlightedEntryIp;
+                const lineOpacity = !hasSelection ? "0.6" : (selected ? "0.95" : "0.15");
+                const lineWidth = !hasSelection ? "1" : (selected ? "2.2" : "1");
+                const hopOpacity = !hasSelection ? "0.6" : (selected ? "0.95" : "0.2");
+                const hopColor = selected ? "rgba(125, 0, 0, 0.98)" : "rgba(255,255,255,0.6)";
+
+                plotted.element.classList.toggle("selected", selected);
+                plotted.element.setAttribute("r", selected ? "4.2" : "3");
+                plotted.element.setAttribute("fill-opacity", hasSelection && !selected ? "0.35" : "1");
+
+                for (let segIndex = 0; segIndex < plotted.traceSegments.length; segIndex++) {
+                    const seg = plotted.traceSegments[segIndex];
+                    const line = seg.line;
+                    line.setAttribute("stroke-opacity", lineOpacity);
+                    line.setAttribute("stroke-width", lineWidth);
+
+                    if (!selected || !defs) {
+                        line.setAttribute("stroke", "rgba(255,255,255,0.7)");
+                        continue;
+                    }
+
+                    const gradId = "selected-trace-grad-" + seg.gradientKey;
+                    const gradient = document.createElementNS(SVG_NS, "linearGradient");
+                    gradient.setAttribute("id", gradId);
+                    gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+                    gradient.setAttribute("x1", String(seg.x1));
+                    gradient.setAttribute("y1", String(seg.y1));
+                    gradient.setAttribute("x2", String(seg.x2));
+                    gradient.setAttribute("y2", String(seg.y2));
+
+                    const t0 = seg.totalSegments <= 1 ? 0 : seg.segmentIndex / (seg.totalSegments - 1);
+                    const t1 = seg.totalSegments <= 1 ? 1 : Math.min(1, (seg.segmentIndex + 1) / (seg.totalSegments - 1));
+
+                    const startStop = document.createElementNS(SVG_NS, "stop");
+                    startStop.setAttribute("offset", "0%");
+                    startStop.setAttribute("stop-color", makeGradientColor(t0));
+                    const endStop = document.createElementNS(SVG_NS, "stop");
+                    endStop.setAttribute("offset", "100%");
+                    endStop.setAttribute("stop-color", makeGradientColor(t1));
+                    gradient.appendChild(startStop);
+                    gradient.appendChild(endStop);
+                    defs.appendChild(gradient);
+
+                    line.setAttribute("stroke", "url(#" + gradId + ")");
+                    drawMidArrow(svg, seg.x1, seg.y1, seg.x2, seg.y2, makeGradientColor((t0 + t1) / 2));
+                }
+
+                for (let hopIndex = 0; hopIndex < plotted.hopElements.length; hopIndex++) {
+                    const hop = plotted.hopElements[hopIndex];
+                    hop.setAttribute("fill", hopColor);
+                    hop.setAttribute("fill-opacity", hopOpacity);
+                    hop.setAttribute("r", selected ? "2.6" : "2");
+
+                    if (selected) {
+                        const hopT = plotted.hopElements.length <= 1 ? 1 : hopIndex / (plotted.hopElements.length - 1);
+                        hop.setAttribute("fill", makeGradientColor(hopT));
+                    }
+                }
+
+                if (selected) {
+                    for (const seg of plotted.traceSegments) {
+                        svg.appendChild(seg.line);
+                    }
+                    for (const hop of plotted.hopElements) {
+                        svg.appendChild(hop);
+                    }
+                    svg.appendChild(plotted.element);
+                }
+            }
+        }
+
+        function selectEntriesNearClick(x, y) {
+            const CLICK_RADIUS = 6;
+            const matches = plottedDestinations.filter(function (p) {
+                const dx = p.x - x;
+                const dy = p.y - y;
+                return Math.sqrt((dx * dx) + (dy * dy)) <= CLICK_RADIUS;
+            });
+
+            if (matches.length === 0) {
+                selectedEntryIps = new Set();
+                highlightedEntryIp = null;
+                selectedEntries = [];
+                selectedEntryIndex = 0;
+                selectedHopIndex = null;
+                applyTraceHighlight();
+                renderInspector();
+                return;
+            }
+
+            selectedEntryIps = new Set(matches.map(function (p) { return p.entry.ip; }));
+            selectedEntries = matches.map(function (p) { return p.entry; });
+            selectedEntryIndex = 0;
+            selectedHopIndex = null;
+            highlightedEntryIp = selectedEntries[selectedEntryIndex]?.ip || null;
+            applyTraceHighlight();
+            renderInspector();
+        }
+
+        function renderGeoCache(data) {
+            const statusEl = document.getElementById("status");
+            const svg = document.getElementById("overlay");
+            const mapWrap = document.getElementById("map-wrap");
+            const width = mapWrap.clientWidth;
+            const height = mapWrap.clientHeight;
+
+            svg.innerHTML = "";
+            svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+            const defs = document.createElementNS(SVG_NS, "defs");
+            svg.appendChild(defs);
+            plottedDestinations = [];
+
+            const entries = Array.isArray(data.geo_cache)
+                ? data.geo_cache.map(normalizeEntry).filter(Boolean)
+                : [];
+            let pointsPlotted = 0;
+            let traceSegments = 0;
+
+            for (const entry of entries) {
+                if (!hasRenderableLatLon(entry)) {
+                    continue;
+                }
+
+                const directionColor = entry.direction === "out" ? "#ff7474" : "#6bc5ff";
+                const entryTraceSegments = [];
+                const entryHopElements = [];
+                const ipKey = String(entry.ip || "entry").replace(/[^a-zA-Z0-9_-]/g, "_");
+
+                const trace = Array.isArray(entry.trace) ? entry.trace : [];
+                const validTrace = trace.filter(hasRenderableLatLon);
+
+                for (let i = 0; i < validTrace.length - 1; i++) {
+                    const from = validTrace[i];
+                    const to = validTrace[i + 1];
+                    const line = drawLine(
+                        svg,
+                        lonToX(from.lon, width),
+                        latToY(from.lat, height),
+                        lonToX(to.lon, width),
+                        latToY(to.lat, height),
+                        "rgba(255,255,255,0.7)",
+                        1
+                    );
+                    entryTraceSegments.push({
+                        line: line,
+                        x1: lonToX(from.lon, width),
+                        y1: latToY(from.lat, height),
+                        x2: lonToX(to.lon, width),
+                        y2: latToY(to.lat, height),
+                        segmentIndex: i,
+                        totalSegments: validTrace.length > 0 ? validTrace.length : 1,
+                        gradientKey: ipKey + "-" + i
+                    });
+                    traceSegments++;
+                }
+
+                if (validTrace.length > 0) {
+                    const lastHop = validTrace[validTrace.length - 1];
+                    const line = drawLine(
+                        svg,
+                        lonToX(lastHop.lon, width),
+                        latToY(lastHop.lat, height),
+                        lonToX(entry.lon, width),
+                        latToY(entry.lat, height),
+                        "rgba(255,255,255,0.7)",
+                        1
+                    );
+                    entryTraceSegments.push({
+                        line: line,
+                        x1: lonToX(lastHop.lon, width),
+                        y1: latToY(lastHop.lat, height),
+                        x2: lonToX(entry.lon, width),
+                        y2: latToY(entry.lat, height),
+                        segmentIndex: validTrace.length - 1,
+                        totalSegments: validTrace.length,
+                        gradientKey: ipKey + "-dest"
+                    });
+                    traceSegments++;
+                }
+
+                for (const hop of validTrace) {
+                    const hopCircle = drawCircle(
+                        svg,
+                        lonToX(hop.lon, width),
+                        latToY(hop.lat, height),
+                        2,
+                        "rgba(255,255,255,0.6)",
+                        "trace-hop"
+                    );
+                    entryHopElements.push(hopCircle);
+                }
+
+                const pointEl = drawCircle(
+                    svg,
+                    lonToX(entry.lon, width),
+                    latToY(entry.lat, height),
+                    3,
+                    directionColor,
+                    "dest-point"
+                );
+                plottedDestinations.push({
+                    x: lonToX(entry.lon, width),
+                    y: latToY(entry.lat, height),
+                    entry: entry,
+                    element: pointEl,
+                    traceSegments: entryTraceSegments,
+                    hopElements: entryHopElements
+                });
+                pointsPlotted++;
+            }
+
+            if (selectedEntryIps.size > 0) {
+                selectedEntries = plottedDestinations
+                    .filter(function (p) { return selectedEntryIps.has(p.entry.ip); })
+                    .map(function (p) { return p.entry; });
+                if (selectedEntries.length === 0) {
+                    selectedEntryIndex = 0;
+                    selectedHopIndex = null;
+                    selectedEntryIps = new Set();
+                    highlightedEntryIp = null;
+                    setInspectorEmpty();
+                } else {
+                    selectedEntryIndex = Math.min(selectedEntryIndex, selectedEntries.length - 1);
+                    highlightedEntryIp = selectedEntries[selectedEntryIndex]?.ip || null;
+                }
+            }
+
+            applyTraceHighlight();
+
+            statusEl.textContent =
+                "Log: " + activeLogPath + "\n" +
+                "Loaded geo_cache entries: " + entries.length + "\n" +
+                "Plotted points: " + pointsPlotted + "\n" +
+                "Trace segments: " + traceSegments;
+        }
+
+        function pickLatestLogFromHtml(htmlText) {
+            const matches = [...htmlText.matchAll(/log_\d{8}_\d{6}\.json/g)];
+            const names = [...new Set(matches.map((m) => m[0]))];
+            if (names.length === 0) {
+                return null;
+            }
+            names.sort((a, b) => b.localeCompare(a));
+            return "logs/" + names[0];
+        }
+
+        async function resolveLogPath() {
+            const params = new URLSearchParams(window.location.search);
+            const explicitLogPath = params.get("log");
+            if (explicitLogPath) {
+                return explicitLogPath;
+            }
+
+            try {
+                const listingResponse = await fetch("logs/");
+                if (listingResponse.ok) {
+                    const listingHtml = await listingResponse.text();
+                    const latest = pickLatestLogFromHtml(listingHtml);
+                    if (latest) {
+                        return latest;
+                    }
+                }
+            } catch (_) {
+                // Ignore listing failures and use fallback.
+            }
+
+            return "logs/log_20260306_222913.json";
+        }
+
+        async function loadAndRender() {
+            const statusEl = document.getElementById("status");
+            const logPath = await resolveLogPath();
+
+            try {
+                const response = await fetch(logPath);
+                if (!response.ok) {
+                    throw new Error("HTTP " + response.status);
+                }
+                activeLogPath = logPath;
+                loadedData = await response.json();
+                window.logJson = loadedData;
+                renderGeoCache(loadedData);
+            } catch (error) {
+                statusEl.textContent =
+                    "Failed to load: " + logPath + "\n" +
+                    String(error) + "\n" +
+                    "Open this page via a local server (not file://).";
+            }
+        }
+
+        window.addEventListener("resize", function onResize() {
+            if (loadedData) {
+                renderGeoCache(loadedData);
+            }
+        });
+
+        document.getElementById("overlay").addEventListener("click", function onOverlayClick(event) {
+            const svg = document.getElementById("overlay");
+            const rect = svg.getBoundingClientRect();
+            const mapWrap = document.getElementById("map-wrap");
+            const scaleX = mapWrap.clientWidth / rect.width;
+            const scaleY = mapWrap.clientHeight / rect.height;
+            const x = (event.clientX - rect.left) * scaleX;
+            const y = (event.clientY - rect.top) * scaleY;
+            selectEntriesNearClick(x, y);
+        });
+
+        loadAndRender();
+    </script>
 </body>
 </html>
