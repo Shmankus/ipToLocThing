@@ -221,6 +221,9 @@ log_file = None
 def on_exit():
     if is_dev:
         log_file = create_log_file("logs")
+        if sys.platform.startswith('darwin'):
+            os.chmod("logs", 0o777)  # set permissions to read/write for everyone
+            os.chmod(log_file, 0o777)  # set permissions to read/write for everyone
         append_to_log(log_file, {"geo_cache": list(geo_cache.values())})
     executor.shutdown(wait=False)
 
