@@ -29,11 +29,39 @@ interface TraceLine {
     color: string;
 }
 
+interface TraceHop {
+    ttl?: number;
+    lat?: number;
+    lon?: number;
+    [key: string]: any;
+}
+
 const OPACITY = ".75";
+
+function sortTraceByTtl(trace: TraceHop[]): TraceHop[] {
+    return [...trace].sort((a, b) => {
+        const aTtl = Number(a?.ttl);
+        const bTtl = Number(b?.ttl);
+        const aValid = Number.isFinite(aTtl);
+        const bValid = Number.isFinite(bTtl);
+        if (!aValid && !bValid) return 0;
+        if (!aValid) return 1;
+        if (!bValid) return -1;
+        return aTtl - bTtl;
+    });
+}
+
+function hasFiniteCoords(hop: TraceHop | undefined): hop is TraceHop & { lat: number; lon: number } {
+    return Number.isFinite(hop?.lat) && Number.isFinite(hop?.lon);
+}
+
+function hasRenderableCoords(hop: TraceHop | undefined): hop is TraceHop & { lat: number; lon: number } {
+    return hasFiniteCoords(hop) && !(hop.lat === 0 && hop.lon === 0);
+}
 // adds functions to the MapComponentHandle
 export interface MapComponentHandle {
     addPoint: (lat: number, lng: number, ip: string, color: string, duration: number) => void;
-    addTraceRoute: (lat: number, lon: number, ip: string, color: string, duration: number, trace: Array<Object>) => void;
+    addTraceRoute: (lat: number, lon: number, ip: string, color: string, duration: number, trace: TraceHop[]) => void;
 }
 
 /**
@@ -71,7 +99,7 @@ const CirclesOverlayWithText = ({ circles, texts, lines }: {
 const StaticMap = memo(() => {
     return (
         <>
-            <img src="Icons/map_simple.png" alt="dev map" style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
+            <img src="Icons/map_compressed.png" alt="dev map" style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
         </>
     );
 });
@@ -218,20 +246,21 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
    * and then maybe order them and test
    */
 
-    const addTraceRoute = useCallback((lat: number, lon: number, ip: string, color: string, duration: number, trace: any[]) => {
+    const addTraceRoute = useCallback((lat: number, lon: number, ip: string, color: string, duration: number, trace: TraceHop[]) => {
         const now = Date.now();
         const lastSeen = lastSeenRef.current.get(`hop-${ip}`) || 0;
         if (now - lastSeen < THROTTLE_MS) return;
         lastSeenRef.current.set(`hop-${ip}`, now);
 
         const traceId = `trace-${ip}-${now}`; // trace id
+        const sortedTrace = sortTraceByTtl(Array.isArray(trace) ? trace : []);
+        const renderableTrace = sortedTrace.filter(hasRenderableCoords);
 
         // adds all lines except one to temp array
         const newLines: TraceLine[] = [];
-        for (let i = 0; i < trace.length - 1; i++) {
-            const from = trace[i];
-            const to = trace[i + 1];
-            if (!from.lat || !from.lon || !to.lat || !to.lon) continue;
+        for (let i = 0; i < renderableTrace.length - 1; i++) {
+            const from = renderableTrace[i];
+            const to = renderableTrace[i + 1];
             if (from.lat === to.lat && from.lon === to.lon) continue;
             newLines.push({
                 id: `${traceId}-line-${i}`,
@@ -244,8 +273,8 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
         }
 
         // add line from last hop to destination if lat/lon available
-        const lastHop = [...trace].reverse().find(h => h.lat && h.lon);
-        if (lastHop && lat && lon) {
+        const lastHop = renderableTrace.length > 0 ? renderableTrace[renderableTrace.length - 1] : undefined;
+        if (lastHop && Number.isFinite(lat) && Number.isFinite(lon)) {
             newLines.push({
                 id: `${traceId}-final-line`,
                 x1: ((lastHop.lon + 180) / 360) * window.innerWidth,
@@ -257,17 +286,15 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
         }
 
         // trace hop logic / circles
-        trace.forEach((hop, idx) => {
-            if (hop.lat && hop.lon) {
-                const point = {
-                    id: `${traceId}-hop-${idx}`,
-                    lng: ((hop.lon + 180) / 360) * window.innerWidth,
-                    lat: ((90 - hop.lat) / 180) * window.innerHeight,
-                    r: 2,
-                    fill: "rgba(255, 255, 255, 0.5)",
-                };
-                circlesRef.current.set(`${traceId}-hop-${idx}`, point);
-            }
+        renderableTrace.forEach((hop, idx) => {
+            const point = {
+                id: `${traceId}-hop-${idx}`,
+                lng: ((hop.lon + 180) / 360) * window.innerWidth,
+                lat: ((90 - hop.lat) / 180) * window.innerHeight,
+                r: 2,
+                fill: "rgba(255, 255, 255, 0.5)",
+            };
+            circlesRef.current.set(`${traceId}-hop-${idx}`, point);
         });
 
         // add all lines at once and then schedule a render, this is more efficient than adding them one by one
@@ -287,7 +314,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
         if (duration > 0) {
             addTimeout(() => {
                 newLines.forEach(l => linesRef.current.delete(l.id));
-                trace.forEach((_, idx) => circlesRef.current.delete(`${traceId}-hop-${idx}`));
+                renderableTrace.forEach((_, idx) => circlesRef.current.delete(`${traceId}-hop-${idx}`));
                 circlesRef.current.delete(`${traceId}-dest`);
                 scheduleRender();
             }, duration);
