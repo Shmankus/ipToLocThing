@@ -1,6 +1,4 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
-const ENTRY_FIELDS = ["ip", "direction", "country", "province", "ping", "totalPackets", "tracedIps"];
-const HOP_FIELDS = ["ip", "ttl", "rtt", "country", "province", "lat", "lon"];
 const CFG = {
     longSegPx: 220,
     shortBucket: 18,
@@ -218,15 +216,10 @@ function fieldValue(key, value) {
     return String(value);
 }
 
-/** Renders object fields in preferred order then extra fields. */
-function renderFields(parent, obj, ordered, hidden = []) {
-    const used = new Set(), hiddenSet = new Set(hidden);
-    for (const k of ordered) {
-        if (!(k in obj) || hiddenSet.has(k)) continue;
-        addRow(parent, keyLabel(k), fieldValue(k, obj[k]));
-        used.add(k);
-    }
-    for (const k of Object.keys(obj).filter((k) => !used.has(k) && !hiddenSet.has(k)).sort()) {
+/** Renders all object fields except hidden keys, sorted for stable UI. */
+function renderFields(parent, obj, hidden = []) {
+    const hiddenSet = new Set(hidden);
+    for (const k of Object.keys(obj).filter((k) => !hiddenSet.has(k)).sort()) {
         addRow(parent, keyLabel(k), fieldValue(k, obj[k]));
     }
 }
@@ -267,11 +260,11 @@ function renderInspector() {
 
     if (state.selectedHopIndex !== null) {
         addRow(ui.inspectorContent, "Hop #", state.selectedHopIndex + 1);
-        renderFields(ui.inspectorContent, trace[state.selectedHopIndex] || {}, HOP_FIELDS);
+        renderFields(ui.inspectorContent, trace[state.selectedHopIndex] || {});
         return;
     }
 
-    renderFields(ui.inspectorContent, entry, ENTRY_FIELDS, ["trace", "locLookupTime"]);
+    renderFields(ui.inspectorContent, entry, ["trace", "locLookupTime"]);
     addRow(ui.inspectorContent, "Lat, Lon", `${entry.lat ?? "n/a"}, ${entry.lon ?? "n/a"}`);
     addRow(ui.inspectorContent, "Trace Hops", trace.length);
 

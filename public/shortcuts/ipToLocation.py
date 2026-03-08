@@ -30,6 +30,22 @@ last_log_write = 0.0
 MAX_TRACE_JUMPS = 10      
 LOG_WRITE_INTERVAL_SEC = 5.0
 
+def binary_search(arr, x):
+    low = 0
+    high = len(arr) - 1
+
+    while low <= high:
+        mid = low + (high - low) // 2
+
+        if arr[mid][0] <= x <= arr[mid][1]:  # x falls within the range
+  
+            return mid
+        elif arr[mid][0] < x:
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    return -1
 
 def create_log_file(base_dir: str) -> str:
     os.makedirs(base_dir, exist_ok=True)  # creates the directory if it doesn't exist
@@ -99,14 +115,19 @@ def get_geolocation_CSV(ip):
     if ip_int is None:
         return
 
-    for start, end, lat, lon, country, province in ip_db:
-        if start <= ip_int <= end:
-            endTime = datetime.datetime.now()
-            saveAvgTime(startTime, endTime)
-            location = {"lat": lat, "lon": lon, "ip": ip, "locLookupTime": avgTTC, "country": country, "province": province}
-            geo_cache[ip] = location
-            return location
-
+    # for start, end, lat, lon, country, province in ip_db:
+    #     if start <= ip_int <= end:
+    #         endTime = datetime.datetime.now()
+    #         saveAvgTime(startTime, endTime)
+    #         location = {"lat": lat, "lon": lon, "ip": ip, "locLookupTime": avgTTC, "country": country, "province": province}
+    #         geo_cache[ip] = location
+    #         return location
+    endTime = datetime.datetime.now()
+    index = binary_search(ip_db, ip_int)
+    saveAvgTime(startTime, endTime)
+    location =  {"lat": ip_db[index][2], "lon": ip_db[index][3], "ip": ip, "locLookupTime": avgTTC, "country": ip_db[index][4], "province": ip_db[index][5], "region": ip_db[index][6]}
+    geo_cache[ip] = location
+    return location
 
 def get_ping(ip):
     """
@@ -165,6 +186,7 @@ def trace_and_cache(ip):
             "lat": location["lat"] if location else None,
             "country": location["country"] if location else None,
             "province": location["province"] if location else None,
+            'region': location["region"] if location else None,
         })
     trace_cache[ip] = hops  
     pending_traces.discard(ip)
@@ -237,7 +259,7 @@ with open(os.getenv("CSV_PATH"), mode='r', newline='') as file:
     for row in reader:
         try:
             # CSV schema: ... country (3), province (4), latitude (6), longitude (7)
-            ip_db.append((int(row[0]), int(row[1]), float(row[6]), float(row[7]), str(row[3]), str(row[4])))
+            ip_db.append((int(row[0]), int(row[1]), float(row[6]), float(row[7]), str(row[3]), str(row[4]), str(row[2])))
         except (ValueError, IndexError):
             continue
 print(json.dumps({"status": "ready", "length": len(ip_db)}), flush=True)
