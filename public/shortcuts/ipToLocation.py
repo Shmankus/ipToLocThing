@@ -21,7 +21,7 @@ trace_cache = {} # cache for ip's and their traceroute info
 my_ip = get_if_addr(conf.iface) # used ip on device
 
 is_dev = '--dev' in sys.argv
-totalPackets = 0
+
 log_file = None
 log_dirty = False
 last_log_write = 0.0
@@ -114,7 +114,7 @@ def get_geolocation_CSV(ip):
     ip_int = ip_to_int(ip)
     if ip_int is None:
         return
-
+    location = {}
     # for start, end, lat, lon, country, province in ip_db:
     #     if start <= ip_int <= end:
     #         endTime = datetime.datetime.now()
@@ -125,7 +125,10 @@ def get_geolocation_CSV(ip):
     endTime = datetime.datetime.now()
     index = binary_search(ip_db, ip_int)
     saveAvgTime(startTime, endTime)
-    location =  {"lat": ip_db[index][2], "lon": ip_db[index][3], "ip": ip, "locLookupTime": avgTTC, "country": ip_db[index][4], "province": ip_db[index][5], "region": ip_db[index][6]}
+    if is_dev:
+        location =  {"lat": ip_db[index][2], "lon": ip_db[index][3], "ip": ip, "locLookupTime": avgTTC, "country": ip_db[index][4], "province": ip_db[index][5], "region": ip_db[index][6]}
+    else: 
+        location =  {"lat": ip_db[index][2], "lon": ip_db[index][3]}
     geo_cache[ip] = location
     return location
 
@@ -178,16 +181,25 @@ def trace_and_cache(ip):
     hops = []
     for snd, rcv in result:
         location = geo_cache.get(rcv.src) or get_geolocation_CSV(rcv.src)
-        hops.append({
-            "ttl": snd.ttl,
-            "ip": rcv.src,
-            "rtt": round((rcv.time - snd.sent_time) * 1000, 2),
-            "lon": location["lon"] if location else None,
-            "lat": location["lat"] if location else None,
-            "country": location["country"] if location else None,
-            "province": location["province"] if location else None,
-            'region': location["region"] if location else None,
-        })
+        if is_dev:
+            hops.append({
+                "ttl": snd.ttl,
+                "ip": rcv.src,
+                "rtt": round((rcv.time - snd.sent_time) * 1000, 2),
+                "lon": location["lon"] if location else None,
+                "lat": location["lat"] if location else None,
+                "country": location["country"] if location else None,
+                "province": location["province"] if location else None,
+                'region': location["region"] if location else None,
+            })
+        else:
+            hops.append({
+                "ttl": snd.ttl,
+                "ip": rcv.src,
+                "rtt": round((rcv.time - snd.sent_time) * 1000, 2),
+                "lon": location["lon"] if location else None,
+                "lat": location["lat"] if location else None,
+            })
     trace_cache[ip] = hops  
     pending_traces.discard(ip)
 
@@ -208,7 +220,7 @@ def packet_callback(packet):
     then print everything as json for nodejs to see
     
     """
-    global totalPackets
+ 
     global log_dirty
     if IP in packet:
             src = packet[IP].src
@@ -240,10 +252,10 @@ def packet_callback(packet):
 
                 location["trace"] = trace_cache.get(external_ip, None)
                 location["direction"] = direction
-                location["totalPackets"] = totalPackets
                 location["tracedIps"] = len(trace_cache)
+                location["uniqueIPs"] = len(geo_cache)
                 
-                totalPackets += 1
+        
                 log_dirty = True
                 persist_log_if_needed()
                 
