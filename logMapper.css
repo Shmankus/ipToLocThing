@@ -7,6 +7,87 @@ html, body {
 
         body {
             position: relative;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: #0f1720;
+        }
+
+        #log-picker {
+            position: fixed;
+            inset: 0;
+            z-index: 30;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background:
+                radial-gradient(circle at 20% 20%, rgba(60, 80, 90, 0.35), transparent 42%),
+                radial-gradient(circle at 80% 30%, rgba(140, 120, 90, 0.25), transparent 45%),
+                linear-gradient(140deg, #0e1a24 0%, #151515 100%);
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #log-picker.hidden {
+            display: none;
+        }
+
+        #log-picker-card {
+            width: min(92vw, 760px);
+            max-height: min(90vh, 780px);
+            overflow: auto;
+            background: rgba(12, 18, 24, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 16px;
+            box-shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
+            padding: 18px;
+            color: #e5edf2;
+        }
+
+        #log-picker-title {
+            margin: 0 0 6px 0;
+            font-size: 26px;
+            letter-spacing: 0.2px;
+        }
+
+        #log-picker-subtitle {
+            margin: 0 0 14px 0;
+            color: #9fb1be;
+            font-size: 14px;
+        }
+
+        #log-picker-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .log-option {
+            width: 100%;
+            text-align: left;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.05);
+            color: #e9f1f6;
+            border-radius: 10px;
+            padding: 10px 12px;
+            cursor: pointer;
+        }
+
+        .log-option:hover {
+            background: rgba(255, 255, 255, 0.11);
+            border-color: rgba(255, 255, 255, 0.24);
+        }
+
+        .log-option .log-time {
+            display: block;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .log-option .log-name {
+            display: block;
+            margin-top: 3px;
+            color: #9fb1be;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 12px;
         }
 
         #map-wrap {

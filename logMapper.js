@@ -29,6 +29,10 @@ const state = {
 
 const ui = {};
 
+// -----------------------------------------------------------------------------
+// Data Normalization / Trace Shaping
+// -----------------------------------------------------------------------------
+
 /** Returns finite number or null. */
 function toNum(v) {
     const n = typeof v === "number" ? v : Number(v);
@@ -104,6 +108,10 @@ function renderable(p) {
     return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) && p.lat !== 0 && p.lon !== 0;
 }
 
+// -----------------------------------------------------------------------------
+// Coordinate / View Transform Helpers
+// -----------------------------------------------------------------------------
+
 /** Converts lon/lat to map pixel space. */
 function lonToX(lon, w) { return ((lon + 180) / 360) * w; }
 function latToY(lat, h) { return ((90 - lat) / 180) * h; }
@@ -142,6 +150,10 @@ function screenToMap(clientX, clientY) {
     // ...then invert current pan/zoom transform for hit-testing.
     return { x: (sx - state.tx) / state.scale, y: (sy - state.ty) / state.scale, sx, sy };
 }
+
+// -----------------------------------------------------------------------------
+// SVG Primitives / Segment Keying
+// -----------------------------------------------------------------------------
 
 /** Draws SVG line. */
 function drawLine(parent, x1, y1, x2, y2, color, width) {
@@ -187,6 +199,10 @@ function makeSegKeys(seg) {
     const rev = `${q(seg.x2)},${q(seg.y2)}->${q(seg.x1)},${q(seg.y1)}`;
     return { len, undirected: fwd < rev ? fwd : rev, directed: fwd, reverseDirected: rev };
 }
+
+// -----------------------------------------------------------------------------
+// Inspector Rendering
+// -----------------------------------------------------------------------------
 
 /** Shows placeholder when no selection is active. */
 function setInspectorEmpty() {
@@ -294,6 +310,10 @@ function renderInspector() {
     ui.inspectorContent.appendChild(section);
 }
 
+// -----------------------------------------------------------------------------
+// Trace Highlighting / Arrow Rules
+// -----------------------------------------------------------------------------
+
 /** Applies selected-trace emphasis and directional arrows. */
 function applyTraceHighlight() {
     const viewport = document.getElementById("viewport-layer");
@@ -367,6 +387,10 @@ function applyTraceHighlight() {
         }
     }
 }
+
+// -----------------------------------------------------------------------------
+// Map Rendering Pipeline
+// -----------------------------------------------------------------------------
 
 /** Updates selection from click location. */
 function selectEntriesNearClick(x, y) {
@@ -443,6 +467,10 @@ function renderGeoCache(data) {
     applyView();
 }
 
+// -----------------------------------------------------------------------------
+// Log Discovery / Loading
+// -----------------------------------------------------------------------------
+
 /** Chooses newest log filename from directory listing HTML. */
 function pickLatestLogFromHtml(html) {
     const strict = [...html.matchAll(/log_\d{8}_\d{6}\.json/g)].map((m) => m[0]);
@@ -451,6 +479,32 @@ function pickLatestLogFromHtml(html) {
     if (!names.length) return null;
     names.sort((a, b) => b.localeCompare(a));
     return `logs/${names[0]}`;
+}
+
+/** Extracts all log filenames from directory listing HTML (newest first). */
+function listLogPathsFromHtml(html) {
+    const strict = [...html.matchAll(/log_\d{8}_\d{6}\.json/g)].map((m) => m[0]);
+    const loose = [...html.matchAll(/log_[^"'<>\s]+\.json/g)].map((m) => m[0]);
+    const names = [...new Set([...strict, ...loose])];
+    names.sort((a, b) => b.localeCompare(a));
+    return names.map((n) => `logs/${n}`);
+}
+
+/** Formats log filename timestamp into a readable local datetime label. */
+function readableLogTime(logPath) {
+    const name = logPath.split("/").pop() || "";
+    const m = name.match(/log_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.json/);
+    if (!m) return name;
+    const [, y, mo, d, h, mi, s] = m;
+    const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
+    return dt.toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+    });
 }
 
 /** Resolves the newest log path from the logs directory listing. */
@@ -464,15 +518,18 @@ async function resolveLogPath() {
 }
 
 /** Loads selected JSON log and renders map. */
-async function loadAndRender() {
+async function loadAndRender(logPath) {
     try {
-        const logPath = await resolveLogPath();
-        const res = await fetch(logPath);
+        const chosenPath = logPath || await resolveLogPath();
+        const res = await fetch(chosenPath);
         if (!res.ok) throw new Error("HTTP " + res.status);
-        state.activeLogPath = logPath;
+        state.activeLogPath = chosenPath;
         state.loadedData = await res.json();
         window.logJson = state.loadedData;
         renderGeoCache(state.loadedData);
+        ui.logPicker.classList.add("hidden");
+        ui.status.style.display = "block";
+        ui.zoomControls.style.display = "flex";
     } catch (err) {
         ui.status.textContent =
             "Failed to load latest log from logs/.\n" +
@@ -480,6 +537,61 @@ async function loadAndRender() {
             "Open this page via a local server (not file://).";
     }
 }
+
+/** Loads log file list and renders picker UI. */
+async function showLogPicker() {
+    ui.status.style.display = "none";
+    ui.zoomControls.style.display = "none";
+    ui.logPicker.classList.remove("hidden");
+    ui.logPickerList.textContent = "Loading logs...";
+
+    try {
+        const res = await fetch("logs/");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const paths = listLogPathsFromHtml(await res.text());
+        if (!paths.length) throw new Error("No logs found in logs/");
+
+        ui.logPickerList.innerHTML = "";
+
+        // Probe each JSON to compute entry count, then sort by size descending.
+        const enriched = await Promise.all(paths.map(async (p) => {
+            try {
+                const r = await fetch(p);
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                const j = await r.json();
+                const count = Array.isArray(j?.geo_cache) ? j.geo_cache.length : 0;
+                return { path: p, count };
+            } catch (_) {
+                return { path: p, count: -1 };
+            }
+        }));
+
+        enriched.sort((a, b) => {
+            if (b.count !== a.count) return b.count - a.count;
+            return b.path.localeCompare(a.path);
+        });
+
+        for (const item of enriched) {
+            const p = item.path;
+            const b = document.createElement("button");
+            b.className = "log-option";
+            b.type = "button";
+            const entriesLabel = item.count >= 0 ? `${item.count} entries` : "entries unknown";
+            b.innerHTML =
+                `<span class="log-time">${readableLogTime(p)}</span>` +
+                `<span class="log-name">${p}</span>` +
+                `<span class="log-name">${entriesLabel}</span>`;
+            b.addEventListener("click", () => loadAndRender(p));
+            ui.logPickerList.appendChild(b);
+        }
+    } catch (err) {
+        ui.logPickerList.textContent = `Failed to list logs: ${String(err)}`;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Interaction Handlers
+// -----------------------------------------------------------------------------
 
 /** Handles click selection while ignoring drag-end clicks. */
 function onOverlayClick(e) {
@@ -512,6 +624,10 @@ function onMouseMove(e) {
 /** Ends drag-pan. */
 function onMouseUp() { state.panning = false; }
 
+// -----------------------------------------------------------------------------
+// Bootstrap
+// -----------------------------------------------------------------------------
+
 /** Caches DOM nodes used by the mapper. */
 function cacheDom() {
     ui.mapWrap = document.getElementById("map-wrap");
@@ -523,6 +639,10 @@ function cacheDom() {
     ui.zoomIn = document.getElementById("zoom-in");
     ui.zoomOut = document.getElementById("zoom-out");
     ui.zoomReset = document.getElementById("zoom-reset");
+    ui.backToPicker = document.getElementById("back-to-picker");
+    ui.zoomControls = document.getElementById("zoom-controls");
+    ui.logPicker = document.getElementById("log-picker");
+    ui.logPickerList = document.getElementById("log-picker-list");
 }
 
 /** Registers all UI event handlers. */
@@ -536,13 +656,31 @@ function bindEvents() {
     ui.zoomIn.addEventListener("click", () => zoomAt(ui.mapWrap.clientWidth / 2, ui.mapWrap.clientHeight / 2, 1.2));
     ui.zoomOut.addEventListener("click", () => zoomAt(ui.mapWrap.clientWidth / 2, ui.mapWrap.clientHeight / 2, 0.84));
     ui.zoomReset.addEventListener("click", resetZoom);
+    ui.backToPicker.addEventListener("click", () => {
+        state.selected = [];
+        state.selectedIps = new Set();
+        state.selectedIndex = 0;
+        state.selectedHopIndex = null;
+        state.highlighted = null;
+        showLogPicker();
+    });
 }
 
 /** Bootstraps the mapper page. */
 function init() {
     cacheDom();
+    // Try common map asset roots so this page works under multiple server layouts.
+    ui.mapImage.addEventListener("error", () => {
+        if (ui.mapImage.src.includes("/Icons/")) {
+            ui.mapImage.src = "public/Icons/map_simple.png";
+            return;
+        }
+        if (ui.mapImage.src.includes("/public/Icons/")) {
+            ui.mapImage.src = "/Icons/map_simple.png";
+        }
+    });
     bindEvents();
-    loadAndRender();
+    showLogPicker();
 }
 
 init();
