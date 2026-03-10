@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="logMapper.css" />
+</head>
+<body>
+    <section id="log-picker">
+        <div id="log-picker-card">
+            <h1 id="log-picker-title">Choose A Log</h1>
+            <p id="log-picker-subtitle">Select a capture to open the map view.</p>
+            <div id="log-picker-list">Loading logs...</div>
+        </div>
+    </section>
+    <div id="map-wrap">
+        <img id="map-image" src="public/Icons/map_simple.png" alt="dev map" />
+        <svg id="overlay"></svg>
+    </div>
+    <div id="status">Loading log JSON...</div>
+    <div id="zoom-controls">
+        <button id="back-to-picker" type="button">Choose Log</button>
+        <button id="zoom-in" type="button">+</button>
+        <button id="zoom-out" type="button">-</button>
+        <button id="zoom-reset" type="button">Reset</button>
+    </div>
+    <aside id="inspector" class="hidden">
+        <h3>Inspector</h3>
+        <div id="inspector-content" class="muted">Click a colored point to inspect its route.</div>
+    </aside>
+
+    <script src="logMapper.js"></script>
+</body>
+</html>
+

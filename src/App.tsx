@@ -13,10 +13,10 @@ let outColor = "rgba(255, 0, 0, 0.7)"
 const ScreenViewer: React.FC = () => {
 
     const [serverStatus, setServerStatus] = useState("stopped"); // 'loading', 'running', 'stopped'
-    const [locLookupTime, setLocLookupTime] = useState(0);
+
     const [locUniqueIps, setLocUniqueIps] = useState(0);
     const [tracedIps, setTracedIps] = useState(0);
-    const [totalPackets, setTotalPackets] = useState(0);
+
 
     const mapRef = useRef<MapComponentHandleType>(null); // Ref to access MapComponent's API methods
 
@@ -69,11 +69,11 @@ const ScreenViewer: React.FC = () => {
             isDev && console.log(msg.payload);
             try {
                 if (msg.payload) { // Sometimes the geolocation API returns (0,0) for private IPs or when it fails to find a location. Ignore these.
-                    setLocLookupTime(parseFloat(msg.payload.locLookupTime));
+               
 
-                    setLocUniqueIps(parseFloat(msg.payload.locUniqueIps))
+                    setLocUniqueIps(parseFloat(msg.payload.uniqueIPs))
                     setTracedIps(msg.payload.tracedIps)
-                    setTotalPackets(msg.payload.totalPackets)
+
 
                     // If trace data is available then add a trace route, otherwise just add the single point for the packet
                     if (msg.payload.trace && msg.payload.trace.length > 1) {
@@ -125,9 +125,8 @@ const ScreenViewer: React.FC = () => {
                 </div>
             )}
             <div className="absolute bottom-5 left-5 h-auto w-auto bg-black/70 z-10 text-md text-white">
-                <div className=" p-2">| Location TTS: {locLookupTime.toFixed(3)}s | Unique IP's: {locUniqueIps}</div>
+                <div className=" p-2">| Unique IP's: {locUniqueIps}</div>
                 <div className=" p-2">| Traced Ips: {tracedIps}</div>
-                <div className=" p-2">| Total Packets: {totalPackets}</div>
 
             </div>
             <div className="absolute bottom-5 right-5 h-auto w-auto bg-black/70 z-10 text-md text-white flex flex-row">

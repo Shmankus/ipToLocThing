@@ -21,11 +21,31 @@ trace_cache = {} # cache for ip's and their traceroute info
 my_ip = get_if_addr(conf.iface) # used ip on device
 
 is_dev = '--dev' in sys.argv
-totalPackets = 0
+
+log_file = None
+log_dirty = False
+last_log_write = 0.0
 
 ## GLOBALS
 MAX_TRACE_JUMPS = 10      
+LOG_WRITE_INTERVAL_SEC = 5.0
 
+def binary_search(arr, x):
+    low = 0
+    high = len(arr) - 1
+
+    while low <= high:
+        mid = low + (high - low) // 2
+
+        if arr[mid][0] <= x <= arr[mid][1]:  # x falls within the range
+  
+            return mid
+        elif arr[mid][0] < x:
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    return -1
 
 def create_log_file(base_dir: str) -> str:
     os.makedirs(base_dir, exist_ok=True)  # creates the directory if it doesn't exist
@@ -34,9 +54,25 @@ def create_log_file(base_dir: str) -> str:
     open(filepath, 'w').close()
     return filepath
 
-def append_to_log(filepath: str, entry: dict) -> None:
-    with open(filepath, 'a') as f:
-        f.write(json.dumps(entry) +  '\n')
+def write_log_snapshot(filepath: str, entry: dict) -> None:
+    # Rewrite full JSON snapshot so log files stay valid JSON for front-end fetch/json parsing.
+    with open(filepath, 'w') as f:
+        f.write(json.dumps(entry))
+
+def persist_log_if_needed(force: bool = False) -> None:
+    global last_log_write
+    global log_dirty
+    if not is_dev or not log_file:
+        return
+
+    now = time.time()
+    if not force and (not log_dirty or (now - last_log_write) < LOG_WRITE_INTERVAL_SEC):
+        return
+
+    payload = {"geo_cache": list(geo_cache.values())}
+    write_log_snapshot(log_file, payload)
+    last_log_write = now
+    log_dirty = False
 # saves the average time to search for the CSV file
 def saveAvgTime(startTime, endTime):
     """
@@ -78,15 +114,23 @@ def get_geolocation_CSV(ip):
     ip_int = ip_to_int(ip)
     if ip_int is None:
         return
-
-    for start, end, lat, lon in ip_db:
-        if start <= ip_int <= end:
-            endTime = datetime.datetime.now()
-            saveAvgTime(startTime, endTime)
-            location = {"lat": lat, "lon": lon, "ip": ip, "locLookupTime": avgTTC}
-            geo_cache[ip] = location
-            return location
-
+    location = {}
+    # for start, end, lat, lon, country, province in ip_db:
+    #     if start <= ip_int <= end:
+    #         endTime = datetime.datetime.now()
+    #         saveAvgTime(startTime, endTime)
+    #         location = {"lat": lat, "lon": lon, "ip": ip, "locLookupTime": avgTTC, "country": country, "province": province}
+    #         geo_cache[ip] = location
+    #         return location
+    endTime = datetime.datetime.now()
+    index = binary_search(ip_db, ip_int)
+    saveAvgTime(startTime, endTime)
+    if is_dev:
+        location =  {"lat": ip_db[index][2], "lon": ip_db[index][3], "ip": ip, "locLookupTime": avgTTC, "country": ip_db[index][4], "province": ip_db[index][5], "region": ip_db[index][6]}
+    else: 
+        location =  {"lat": ip_db[index][2], "lon": ip_db[index][3]}
+    geo_cache[ip] = location
+    return location
 
 def get_ping(ip):
     """
@@ -137,13 +181,25 @@ def trace_and_cache(ip):
     hops = []
     for snd, rcv in result:
         location = geo_cache.get(rcv.src) or get_geolocation_CSV(rcv.src)
-        hops.append({
-            "ttl": snd.ttl,
-            "ip": rcv.src,
-            "rtt": round((rcv.time - snd.sent_time) * 1000, 2),
-            "lon": location["lon"] if location else None,
-            "lat": location["lat"] if location else None,
-        })
+        if is_dev:
+            hops.append({
+                "ttl": snd.ttl,
+                "ip": rcv.src,
+                "rtt": round((rcv.time - snd.sent_time) * 1000, 2),
+                "lon": location["lon"] if location else None,
+                "lat": location["lat"] if location else None,
+                "country": location["country"] if location else None,
+                "province": location["province"] if location else None,
+                'region': location["region"] if location else None,
+            })
+        else:
+            hops.append({
+                "ttl": snd.ttl,
+                "ip": rcv.src,
+                "rtt": round((rcv.time - snd.sent_time) * 1000, 2),
+                "lon": location["lon"] if location else None,
+                "lat": location["lat"] if location else None,
+            })
     trace_cache[ip] = hops  
     pending_traces.discard(ip)
 
@@ -164,7 +220,8 @@ def packet_callback(packet):
     then print everything as json for nodejs to see
     
     """
-    global totalPackets
+ 
+    global log_dirty
     if IP in packet:
             src = packet[IP].src
             dst = packet[IP].dst
@@ -195,10 +252,12 @@ def packet_callback(packet):
 
                 location["trace"] = trace_cache.get(external_ip, None)
                 location["direction"] = direction
-                location["totalPackets"] = totalPackets
                 location["tracedIps"] = len(trace_cache)
+                location["uniqueIPs"] = len(geo_cache)
                 
-                totalPackets += 1
+        
+                log_dirty = True
+                persist_log_if_needed()
                 
                 print(json.dumps(location))
                 sys.stdout.flush()
@@ -211,17 +270,21 @@ with open(os.getenv("CSV_PATH"), mode='r', newline='') as file:
     next(reader, None)
     for row in reader:
         try:
-            ip_db.append((int(row[0]), int(row[1]), float(row[6]), float(row[7])))
+            # CSV schema: ... country (3), province (4), latitude (6), longitude (7)
+            ip_db.append((int(row[0]), int(row[1]), float(row[6]), float(row[7]), str(row[3]), str(row[4]), str(row[2])))
         except (ValueError, IndexError):
             continue
 print(json.dumps({"status": "ready", "length": len(ip_db)}), flush=True)
 
-log_file = None
-
 def on_exit():
+    global log_file
     if is_dev:
-        log_file = create_log_file("logs")
-        append_to_log(log_file, {"geo_cache": list(geo_cache.values())})
+        if not log_file:
+            log_file = create_log_file("logs")
+            if sys.platform.startswith('darwin'):
+                os.chmod("logs", 0o777)  # set permissions to read/write for everyone
+                os.chmod(log_file, 0o777)  # set permissions to read/write for everyone
+        persist_log_if_needed(force=True)
     executor.shutdown(wait=False)
 
 def on_signal(sig, frame):
@@ -230,7 +293,11 @@ def on_signal(sig, frame):
 
 if is_dev:
     signal.signal(signal.SIGTERM, on_signal)
-    signal.signal(signal.SIGINT, on_signal)
+    log_file = create_log_file("logs")
+    if sys.platform.startswith('darwin'):
+        os.chmod("logs", 0o777)  # set permissions to read/write for everyone
+        os.chmod(log_file, 0o777)  # set permissions to read/write for everyone
+    persist_log_if_needed(force=True)
 
 atexit.register(on_exit)
 
