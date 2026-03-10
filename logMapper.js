@@ -475,6 +475,7 @@ function renderGeoCache(data) {
 
 /** Chooses newest log filename from directory listing HTML. */
 function pickLatestLogFromHtml(html) {
+    
     const strict = [...html.matchAll(/log_\d{8}_\d{6}\.json/g)].map((m) => m[0]);
     const loose = [...html.matchAll(/log_[^"'<>\s]+\.json/g)].map((m) => m[0]);
     const names = [...new Set([...strict, ...loose])];
@@ -542,6 +543,7 @@ async function loadAndRender(logPath) {
 
 /** Loads log file list and renders picker UI. */
 async function showLogPicker() {
+    if (intervalId) {clearInterval(intervalId); intervalId = null;}
     ui.status.style.display = "none";
     ui.zoomControls.style.display = "none";
     ui.logPicker.classList.remove("hidden");
