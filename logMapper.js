@@ -29,6 +29,8 @@ const state = {
 
 const ui = {};
 
+let intervalId = null;
+
 // -----------------------------------------------------------------------------
 // Data Normalization / Trace Shaping
 // -----------------------------------------------------------------------------
@@ -581,7 +583,11 @@ async function showLogPicker() {
                 `<span class="log-time">${readableLogTime(p)}</span>` +
                 `<span class="log-name">${p}</span>` +
                 `<span class="log-name">${entriesLabel}</span>`;
-            b.addEventListener("click", () => loadAndRender(p));
+            b.addEventListener("click", () => {
+                intervalId = setInterval(() => {
+                loadAndRender(p);
+                }, 500);
+            });
             ui.logPickerList.appendChild(b);
         }
     } catch (err) {
