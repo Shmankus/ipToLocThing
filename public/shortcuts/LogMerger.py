@@ -9,6 +9,13 @@ def merge_entries(data1, data2):
     # append entries in data2 that are not in data1 by ip
     uniqueItems = find_unique_ips(data1, data2)
 
+    if count_duplicates(data1):
+        print("FOUND DUPLICATES IN FIRST DATA, EXITING")
+        return
+    if count_duplicates(data2):
+        print("FOUND DUPLICATES IN SECOND DATA, EXITING")
+        return
+
     data1.append(uniqueItems)
     print(len(data1))
 
