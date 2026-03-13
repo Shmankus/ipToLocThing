@@ -6,8 +6,11 @@ import time
 
 def merge_entries(data1, data2):
 
+    data1Length = len(data1)
+    data2Length = len(data2)
+
     # append entries in data2 that are not in data1 by ip
-    uniqueItems = find_unique_ips(data1, data2)
+    
 
     if count_duplicates(data1):
         print("FOUND DUPLICATES IN FIRST DATA, EXITING")
@@ -16,10 +19,19 @@ def merge_entries(data1, data2):
         print("FOUND DUPLICATES IN SECOND DATA, EXITING")
         return
 
-    data1.append(uniqueItems)
-    print(len(data1))
+    uniqueItems = find_unique_ips(data1, data2)
+    for item in uniqueItems:
+        data1.append(item)
 
     ## TODO - merge unique trace data into the ips
+
+    # checks
+
+    print("Data1 Length:", data1Length)
+    print("Data2 Length:", data2Length)
+    print("Unique entries:", len(uniqueItems))
+    print("Predicted merge length:", data1Length + len(uniqueItems))
+    print("Merged Length:", len(data1))
 
     json_bytes = orjson.dumps({"geo_cache": data1})
     # Define the file path
@@ -32,6 +44,24 @@ def merge_entries(data1, data2):
     except IOError as e:
         print(f"An error occurred while writing to the file: {e}")
 
+
+
+
+def is_same(data1,data2):
+    for idx1, item1 in enumerate(data1):
+        for idx2, item2 in enumerate(data2):
+            if item1 == item2:
+                print(
+                    "found same | "
+                    + item1["ip"]
+                    + "At Index: "
+                    + str(idx1)
+                    + " | "
+                    + item2["ip"]
+                    + "At Index: "
+                    + str(idx2)
+                )
+            
 
 def count_similar_entries(data1, data2):
     for idx1, item1 in enumerate(data1):
@@ -55,8 +85,6 @@ def find_unique_ips(data1, data2):
     for item2 in data2:
         if item2 not in data1:
             uniqueEntries.append(item2)
-
-    print(len(uniqueEntries))
     return uniqueEntries
 
 
@@ -87,7 +115,17 @@ def main():
     if len(sys.argv) == 3:
         file1 = sys.argv[1]
         file2 = sys.argv[2]
-        print(f"Processing files: {file1} and {file2}")
+        print(
+            "=" * 30
+            + " Merging "
+            + os.path.basename(file1)
+            + " with "
+            + os.path.basename(file2)
+            + " "
+            + "=" * 30
+        )
+        print("File 1: ", file1)
+        print("File 2: ", file2)
 
         try:
             with open(file1, "rb") as f:
@@ -96,26 +134,9 @@ def main():
 
             with open(file2, "rb") as f:
                 file2Bytes = f.read()
-
             file2Data = orjson.loads(file2Bytes)
 
-            # You can now work with the Python data
-            # print(orjson.dumps(file1Data, option=orjson.OPT_INDENT_2).decode("utf-8"))
-            # print(orjson.dumps(file2Data, option=orjson.OPT_INDENT_2).decode("utf-8"))
-
             print("Successfully imported data:")
-            # print("file1 geo_cache length:", len(file1Data["geo_cache"]))
-            # print("file2 geo_cache length:", len(file2Data["geo_cache"]))
-
-            # # count_similar_entries(file1Data, file2Data)
-            # count_duplicates(file1Data)
-            # count_duplicates(file2Data)
-
-            # merge_entries(1, 1)
-
-            merge_entries(file1Data["geo_cache"], file2Data["geo_cache"])
-
-            # find_unique_ips(file1Data["geo_cache"],file2Data["geo_cache"])
 
         except FileNotFoundError:
             print(f"Error: The file '{file1}' was not found.")
@@ -123,6 +144,13 @@ def main():
             print(f"Error decoding JSON: {e}")
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
+
+        merge_entries(file1Data["geo_cache"], file2Data["geo_cache"])
+        
+        # is_same(file1Data["geo_cache"], file2Data["geo_cache"])
+
+        # find_unique_ips(file1Data["geo_cache"],file2Data["geo_cache"])
+        print("=" * 90)
     else:
         print(
             "Please provide 2 arguments, location to first file and location to second file"
