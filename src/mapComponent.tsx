@@ -27,6 +27,7 @@ interface TraceLine {
     x2: number; // Ending x position in pixels
     y2: number; // Ending y position in pixels
     color: string;
+    reverseArrow?: boolean;
 }
 
 interface TraceHop {
@@ -37,6 +38,44 @@ interface TraceHop {
 }
 
 const OPACITY = ".75";
+const ARROW_LEN = 16;
+const ARROW_WIDTH = 10;
+const MIN_ARROW_SEG_PX = 8;
+const ARROW_LONG_SEG_PX = 220;
+const ARROW_SHORT_BUCKET = 18;
+const ARROW_LONG_BUCKET = 55;
+
+function getMidArrowPoints(x1: number, y1: number, x2: number, y2: number): string | null {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const segLen = Math.hypot(dx, dy);
+    if (segLen < MIN_ARROW_SEG_PX) return null;
+    const a = Math.atan2(dy, dx);
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const tipX = mx + Math.cos(a) * (ARROW_LEN / 2);
+    const tipY = my + Math.sin(a) * (ARROW_LEN / 2);
+    const backX = mx - Math.cos(a) * (ARROW_LEN / 2);
+    const backY = my - Math.sin(a) * (ARROW_LEN / 2);
+    const nx = Math.cos(a + Math.PI / 2) * (ARROW_WIDTH / 2);
+    const ny = Math.sin(a + Math.PI / 2) * (ARROW_WIDTH / 2);
+    return `${tipX},${tipY} ${backX + nx},${backY + ny} ${backX - nx},${backY - ny}`;
+}
+
+function getArrowKeys(line: TraceLine) {
+    const ax1 = line.reverseArrow ? line.x2 : line.x1;
+    const ay1 = line.reverseArrow ? line.y2 : line.y1;
+    const ax2 = line.reverseArrow ? line.x1 : line.x2;
+    const ay2 = line.reverseArrow ? line.y1 : line.y2;
+    const len = Math.hypot(ax2 - ax1, ay2 - ay1);
+    if (len < MIN_ARROW_SEG_PX) return null;
+    const bucket = len > ARROW_LONG_SEG_PX ? ARROW_LONG_BUCKET : ARROW_SHORT_BUCKET;
+    const q = (v: number) => Math.round(v / bucket) * bucket;
+    const fwd = `${q(ax1)},${q(ay1)}->${q(ax2)},${q(ay2)}`;
+    const rev = `${q(ax2)},${q(ay2)}->${q(ax1)},${q(ay1)}`;
+    const undirected = fwd < rev ? fwd : rev;
+    return { undirected, directed: fwd, reverseDirected: rev };
+}
 
 function sortTraceByTtl(trace: TraceHop[]): TraceHop[] {
     return [...trace].sort((a, b) => {
@@ -61,7 +100,7 @@ function hasRenderableCoords(hop: TraceHop | undefined): hop is TraceHop & { lat
 // adds functions to the MapComponentHandle
 export interface MapComponentHandle {
     addPoint: (lat: number, lng: number, ip: string, color: string, duration: number) => void;
-    addTraceRoute: (lat: number, lon: number, ip: string, color: string, duration: number, trace: TraceHop[]) => void;
+    addTraceRoute: (lat: number, lon: number, ip: string, color: string, duration: number, trace: TraceHop[], direction?: 'in' | 'out') => void;
 }
 
 /**
@@ -83,9 +122,53 @@ const CirclesOverlayWithText = ({ circles, texts, lines }: {
     lines: Map<string, TraceLine>
 }) => (
     <svg style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} width={window.innerWidth} height={window.innerHeight}>
-        {[...lines.values()].map((l) => (
-            <line key={l.id} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke={l.color} strokeWidth={1} strokeOpacity={0.6} />
-        ))}
+        {(() => {
+            const linesArr = [...lines.values()];
+            const edgeInfo = new Map<string, Set<string>>();
+            linesArr.forEach((l) => {
+                const keys = getArrowKeys(l);
+                if (!keys) return;
+                const set = edgeInfo.get(keys.undirected) || new Set<string>();
+                set.add(keys.directed);
+                edgeInfo.set(keys.undirected, set);
+            });
+            const renderedUndirected = new Set<string>();
+            const renderedDirected = new Set<string>();
+            return (
+                <>
+                    {linesArr.map((l) => (
+                        <line key={l.id} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke={l.color} strokeWidth={1} strokeOpacity={0.6} />
+                    ))}
+                    {linesArr.map((l) => {
+                        const keys = getArrowKeys(l);
+                        if (!keys) return null;
+                        const info = edgeInfo.get(keys.undirected);
+                        const biDirectional = Boolean(info && info.has(keys.directed) && info.has(keys.reverseDirected));
+                        if (biDirectional) {
+                            if (renderedDirected.has(keys.directed)) return null;
+                            renderedDirected.add(keys.directed);
+                        } else {
+                            if (renderedUndirected.has(keys.undirected)) return null;
+                            renderedUndirected.add(keys.undirected);
+                        }
+                        const points = l.reverseArrow
+                            ? getMidArrowPoints(l.x2, l.y2, l.x1, l.y1)
+                            : getMidArrowPoints(l.x1, l.y1, l.x2, l.y2);
+                        if (!points) return null;
+                        return (
+                            <polygon
+                                key={`${l.id}-arrow`}
+                                points={points}
+                                fill={l.color}
+                                fillOpacity={0.98}
+                                stroke="rgba(60,60,60,0.65)"
+                                strokeWidth={0.8}
+                            />
+                        );
+                    })}
+                </>
+            );
+        })()}
         {[...circles.values()].map((c) => (
             <circle key={c.id} cx={c.lng} cy={c.lat} r={c.r} fill={c.fill} />
         ))}
@@ -246,7 +329,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
    * and then maybe order them and test
    */
 
-    const addTraceRoute = useCallback((lat: number, lon: number, ip: string, color: string, duration: number, trace: TraceHop[]) => {
+    const addTraceRoute = useCallback((lat: number, lon: number, ip: string, color: string, duration: number, trace: TraceHop[], direction: 'in' | 'out' = 'out') => {
         const now = Date.now();
         const lastSeen = lastSeenRef.current.get(`hop-${ip}`) || 0;
         if (now - lastSeen < THROTTLE_MS) return;
@@ -255,6 +338,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
         const traceId = `trace-${ip}-${now}`; // trace id
         const sortedTrace = sortTraceByTtl(Array.isArray(trace) ? trace : []);
         const renderableTrace = sortedTrace.filter(hasRenderableCoords);
+        const reverseArrow = direction === 'in';
 
         // adds all lines except one to temp array
         const newLines: TraceLine[] = [];
@@ -269,6 +353,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
                 x2: ((to.lon + 180) / 360) * window.innerWidth,
                 y2: ((90 - to.lat) / 180) * window.innerHeight,
                 color: "rgba(255, 255, 255, 0.5)",
+                reverseArrow,
             });
         }
 
@@ -282,6 +367,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
                 x2: ((lon + 180) / 360) * window.innerWidth,
                 y2: ((90 - lat) / 180) * window.innerHeight,
                 color: "rgba(255, 255, 255, 0.5)",
+                reverseArrow,
             });
         }
 
