@@ -1,142 +1,169 @@
-// Deskthing
-import React, { useEffect, useRef, useState } from "react";
-import { DeskThing } from "@deskthing/client";
-// import 'leaflet/dist/leaflet.css';
-import MapComponentHandle, { type MapComponentHandle as MapComponentHandleType } from './mapComponent';
+import { useEffect, useRef, useState } from 'react'
+import { DeskThing } from '@deskthing/client'
+import LogMapperView from './LogMapperView'
+import MapComponentHandle, { type MapComponentHandle as MapComponentHandleType } from './mapComponent'
 
-const isDev = process.env.NODE_ENV === 'development';
-//'#' + (0x1000000 + Math.random() * 0xffffff).toString(16).substr(1, 6)
-let inColor = "rgba(0, 255, 255, .7)"
-let outColor = "rgba(255, 0, 0, 0.7)"
+const isDev = import.meta.env.DEV
+const IN_COLOR = 'rgba(0, 255, 255, 0.7)'
+const OUT_COLOR = 'rgba(255, 0, 0, 0.7)'
 
-// =================== Main ScreenViewer Component ===================
-const ScreenViewer: React.FC = () => {
+type ViewMode = 'screen' | 'log-mapper'
+type IpLocationPayload = {
+  lat: number
+  lon: number
+  ip: string
+  uniqueIPs?: string | number
+  tracedIps?: number
+  trace?: Array<Record<string, unknown>>
+  direction?: 'in' | 'out'
+}
 
-    const [serverStatus, setServerStatus] = useState("stopped"); // 'loading', 'running', 'stopped'
+function ScreenViewer() {
+  const [serverStatus, setServerStatus] = useState('stopped')
+  const [locUniqueIps, setLocUniqueIps] = useState(0)
+  const [tracedIps, setTracedIps] = useState(0)
+  const mapRef = useRef<MapComponentHandleType>(null)
 
-    const [locUniqueIps, setLocUniqueIps] = useState(0);
-    const [tracedIps, setTracedIps] = useState(0);
+  useEffect(() => {
+    const handleFocus = () => {
+      DeskThing.fatal('viewFocused ')
+      DeskThing.send({
+        type: 'focusUpdate',
+        payload: '1',
+      })
+    }
 
+    const handleBlur = () => {
+      DeskThing.fatal('viewBlurred ')
+      DeskThing.send({
+        type: 'focusUpdate',
+        payload: '0',
+      })
+    }
 
-    const mapRef = useRef<MapComponentHandleType>(null); // Ref to access MapComponent's API methods
+    window.addEventListener('focus', handleFocus)
+    window.addEventListener('blur', handleBlur)
 
-    /**
-* Creates listener for view changes 
-* @emits focusUpdate
-* @param payload - string of either 1 or 0 based on the view focus
-*/
-    useEffect(() => {
-        // Focus and blur event handlers to notify the server of the current focus state
-        const handleFocus = () => {
-            // Notify the server that the view has been focused
-            DeskThing.fatal("viewFocused ");
-            DeskThing.send({
-                type: "focusUpdate",
-                payload: "1",
-            });
-        };
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('blur', handleBlur)
+    }
+  }, [])
 
-        // Notify the server that the view has been unfocused/blurred
-        const handleBlur = () => {
-            DeskThing.fatal("viewBlurred ");
-            DeskThing.send({
-                type: "focusUpdate",
-                payload: "0",
-            });
-        };
+  useEffect(() => {
+    const handler = (msg: { payload?: unknown }) => {
+      if (!msg.payload || typeof msg.payload !== 'object') return
 
-        // Add event listeners
-        window.addEventListener('focus', handleFocus);
-        window.addEventListener('blur', handleBlur);
+      const payload = msg.payload as IpLocationPayload
 
-        // Clean up event listeners on component unmount
-        return () => {
-            window.removeEventListener('focus', handleFocus);
-            window.removeEventListener('blur', handleBlur);
-        };
-    }, []);
-
-
-    /**
- * Subscribes to server updates and adds according routes and points, also updates any usestates
- *
- * @listens ipLocationUpdate
- * @param msg.payload - JSON of all data coming from the server 
- * {"lat": number, "lon": number, "ip": string, "locLookupTime": [], ping: number, trace: [], direction: 'in' 'out', tracedIps: number} 
- */
-    useEffect(() => {
-        const handler = (msg: any) => {
-            isDev && console.log(msg.payload);
-            try {
-                if (msg.payload) { // Sometimes the geolocation API returns (0,0) for private IPs or when it fails to find a location. Ignore these.
-               
-
-                    setLocUniqueIps(parseFloat(msg.payload.uniqueIPs))
-                    setTracedIps(msg.payload.tracedIps)
-
-
-                    // If trace data is available then add a trace route, otherwise just add the single point for the packet
-                    if (msg.payload.trace && msg.payload.trace.length > 1) {
-
-                        mapRef.current?.addTraceRoute(
-                            msg.payload.lat,
-                            msg.payload.lon,
-                            msg.payload.ip,
-                            msg.payload.direction == "in" ? inColor : outColor,
-                            1000,
-                            msg.payload.trace,
-                            msg.payload.direction
-                        )
-                    } else {
-                        mapRef.current?.addPoint(msg.payload.lat, msg.payload.lon, msg.payload.ip, msg.payload.direction == "in" ? inColor : outColor, 1000);
-                    }
-                }
-
-            }
-            catch (e) { console.error("Failed to parse mutedApps payload", e); }
-        };
-        return DeskThing.on("ipLocationUpdate", handler);
-    }, []);
-
-    /**
-     * Subscribes to server status updates from the DeskThing server and updates local state.
-     * Cleans up the listener on component unmount via the returned unsubscribe function.
-     *
-     * @listens serverStatus
-     * @param msg.payload - The new server status string ('loading' | 'running' | 'stopped' | 'ERROR')
-     */
-    useEffect(() => {
-        const handler = (msg: any) => {
-            if (msg.payload) {
-                setServerStatus(msg.payload);
-            }
+      try {
+        if (isDev) {
+          console.log(payload)
         }
-        return DeskThing.on("serverStatus", handler);
-    }, []);
 
+        setLocUniqueIps(Number.parseFloat(String(payload.uniqueIPs ?? 0)))
+        setTracedIps(Number(payload.tracedIps ?? 0))
 
-    // Main view rendering
-    return (
-        <div className="w-screen h-screen  cursor-none pointer-events-none">
-            {(!isDev && (serverStatus === "loading" || serverStatus === "stopped" || serverStatus === "ERROR")) && (
-                <div className="absolute top-0 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10 backdrop-blur-lg bg-black/70">
-                    <div className="absolute top-0 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| Tap on screen to start |</div>
-                    <div className="absolute top-10 left-0 right-0 bottom-0 flex flex-row justify-center items-center h-1/8 w-1/8 z-10">| serverStatus: {serverStatus} |</div>
+        if (payload.trace && payload.trace.length > 1) {
+          mapRef.current?.addTraceRoute(
+            payload.lat,
+            payload.lon,
+            payload.ip,
+            payload.direction === 'in' ? IN_COLOR : OUT_COLOR,
+            1000,
+            payload.trace,
+            payload.direction,
+          )
+          return
+        }
 
-                </div>
-            )}
-            <div className="absolute bottom-5 left-5 h-auto w-auto bg-black/70 z-10 text-md text-white">
-                <div className=" p-2">| Unique IP's: {locUniqueIps}</div>
-                <div className=" p-2">| Traced Ips: {tracedIps}</div>
+        mapRef.current?.addPoint(
+          payload.lat,
+          payload.lon,
+          payload.ip,
+          payload.direction === 'in' ? IN_COLOR : OUT_COLOR,
+          1000,
+        )
+      } catch (error) {
+        console.error('Failed to parse ipLocationUpdate payload', error)
+      }
+    }
 
-            </div>
-            <div className="absolute bottom-5 right-5 h-auto w-auto bg-black/70 z-10 text-md text-white flex flex-row">
-                <div>| Incoming: </div> <div className=" " style={{ color: `${inColor}` }}>⬤</div>
-                <div>| Outgoing: </div> <div className=" " style={{ color: `${outColor}` }}>⬤</div> <div>|</div>
+    return DeskThing.on('ipLocationUpdate', handler)
+  }, [])
 
-            </div>
-            <MapComponentHandle ref={mapRef} />
+  useEffect(() => {
+    const handler = (msg: { payload?: string }) => {
+      if (msg.payload) {
+        setServerStatus(msg.payload)
+      }
+    }
+
+    return DeskThing.on('serverStatus', handler)
+  }, [])
+
+  return (
+    <div className="pointer-events-none h-screen w-screen cursor-none">
+      {!isDev && (serverStatus === 'loading' || serverStatus === 'stopped' || serverStatus === 'ERROR') && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/70 backdrop-blur-lg">
+          <div className="text-center text-white">
+            <div>| Tap on screen to start |</div>
+            <div className="mt-3">| serverStatus: {serverStatus} |</div>
+          </div>
         </div>
-    );
-};
-export default ScreenViewer;
+      )}
+
+      <div className="absolute bottom-5 left-5 z-10 w-auto bg-black/70 text-md text-white">
+        <div className="p-2">| Unique IP&apos;s: {locUniqueIps}</div>
+        <div className="p-2">| Traced Ips: {tracedIps}</div>
+      </div>
+
+      <div className="absolute bottom-5 right-5 z-10 flex flex-row items-center gap-2 bg-black/70 px-2 py-1 text-md text-white">
+        <div>| Incoming:</div>
+        <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: IN_COLOR }} />
+        <div>| Outgoing:</div>
+        <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: OUT_COLOR }} />
+        <div>|</div>
+      </div>
+
+      <MapComponentHandle ref={mapRef} />
+    </div>
+  )
+}
+
+export default function App() {
+  const [activeView, setActiveView] = useState<ViewMode>('screen')
+
+  return (
+    <div className="relative h-screen w-screen overflow-hidden bg-black text-white">
+      {isDev && (
+        <div className="pointer-events-auto absolute right-4 top-4 z-50 flex gap-2">
+          <button
+            className={`rounded-md border px-3 py-2 text-sm ${
+              activeView === 'screen'
+                ? 'border-white/40 bg-white/20 text-white'
+                : 'border-white/20 bg-black/70 text-white/80'
+            }`}
+            onClick={() => setActiveView('screen')}
+            type="button"
+          >
+            Live View
+          </button>
+          <button
+            className={`rounded-md border px-3 py-2 text-sm ${
+              activeView === 'log-mapper'
+                ? 'border-white/40 bg-white/20 text-white'
+                : 'border-white/20 bg-black/70 text-white/80'
+            }`}
+            onClick={() => setActiveView('log-mapper')}
+            type="button"
+          >
+            Log Mapper
+          </button>
+        </div>
+      )}
+
+      {activeView === 'log-mapper' ? <LogMapperView /> : <ScreenViewer />}
+    </div>
+  )
+}

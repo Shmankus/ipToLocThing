@@ -188,7 +188,7 @@ const StaticMap = memo(() => {
 });
 
 const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
-    const THROTTLE_MS = 500; // only add a new point for same IP if its been longer than THROTTLE_MS 
+    const THROTTLE_MS = 250; // only add a new point for same IP if its been longer than THROTTLE_MS 
 
     // cleans up points every 10 seconds so i dont have to fix the memory leak somewhere
     const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
