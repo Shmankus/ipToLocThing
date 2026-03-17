@@ -84,7 +84,8 @@ const ScreenViewer: React.FC = () => {
                             msg.payload.ip,
                             msg.payload.direction == "in" ? inColor : outColor,
                             1000,
-                            msg.payload.trace
+                            msg.payload.trace,
+                            msg.payload.direction
                         )
                     } else {
                         mapRef.current?.addPoint(msg.payload.lat, msg.payload.lon, msg.payload.ip, msg.payload.direction == "in" ? inColor : outColor, 1000);
@@ -139,4 +140,3 @@ const ScreenViewer: React.FC = () => {
     );
 };
 export default ScreenViewer;
-
