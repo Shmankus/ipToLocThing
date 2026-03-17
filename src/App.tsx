@@ -18,8 +18,7 @@ type IpLocationPayload = {
   direction?: 'in' | 'out'
 }
 
-function ScreenViewer() {
-  const [serverStatus, setServerStatus] = useState('stopped')
+function ScreenViewer({ serverStatus }: { serverStatus: string }) {
   const [locUniqueIps, setLocUniqueIps] = useState(0)
   const [tracedIps, setTracedIps] = useState(0)
   const mapRef = useRef<MapComponentHandleType>(null)
@@ -92,22 +91,16 @@ function ScreenViewer() {
     return DeskThing.on('ipLocationUpdate', handler)
   }, [])
 
-  useEffect(() => {
-    const handler = (msg: { payload?: string }) => {
-      if (msg.payload) {
-        setServerStatus(msg.payload)
-      }
-    }
-
-    return DeskThing.on('serverStatus', handler)
-  }, [])
+  const showStartupOverlay =
+    serverStatus === 'loading' || serverStatus === 'stopped' || serverStatus === 'ERROR'
+  const overlayMessage = isDev ? '| Loading live map... |' : '| Tap on screen to start |'
 
   return (
     <div className="pointer-events-none h-screen w-screen cursor-none">
-      {!isDev && (serverStatus === 'loading' || serverStatus === 'stopped' || serverStatus === 'ERROR') && (
+      {showStartupOverlay && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/70 backdrop-blur-lg">
           <div className="text-center text-white">
-            <div>| Tap on screen to start |</div>
+            <div>{overlayMessage}</div>
             <div className="mt-3">| serverStatus: {serverStatus} |</div>
           </div>
         </div>
@@ -132,7 +125,34 @@ function ScreenViewer() {
 }
 
 export default function App() {
-  const [activeView, setActiveView] = useState<ViewMode>('screen')
+  const [activeView, setActiveView] = useState<ViewMode>(isDev ? 'log-mapper' : 'screen')
+  const [serverStatus, setServerStatus] = useState('stopped')
+  const hasRequestedLiveStart = useRef(false)
+
+  useEffect(() => {
+    const handler = (msg: { payload?: string }) => {
+      if (msg.payload) {
+        setServerStatus(msg.payload)
+      }
+    }
+
+    return DeskThing.on('serverStatus', handler)
+  }, [])
+
+  // In development we open on the saved-log inspector first.
+  // The live capture process only starts the first time the user intentionally switches to the map.
+  function openLiveView() {
+    if (isDev && !hasRequestedLiveStart.current) {
+      setServerStatus('loading')
+      DeskThing.send({
+        type: 'focusUpdate',
+        payload: '1',
+      })
+      hasRequestedLiveStart.current = true
+    }
+
+    setActiveView('screen')
+  }
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black text-white">
@@ -144,7 +164,7 @@ export default function App() {
                 ? 'border-white/40 bg-white/20 text-white'
                 : 'border-white/20 bg-black/70 text-white/80'
             }`}
-            onClick={() => setActiveView('screen')}
+            onClick={openLiveView}
             type="button"
           >
             Live View
@@ -163,7 +183,7 @@ export default function App() {
         </div>
       )}
 
-      {activeView === 'log-mapper' ? <LogMapperView /> : <ScreenViewer />}
+      {activeView === 'log-mapper' ? <LogMapperView /> : <ScreenViewer serverStatus={serverStatus} />}
     </div>
   )
 }

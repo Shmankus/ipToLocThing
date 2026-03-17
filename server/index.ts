@@ -1,16 +1,15 @@
 import "./polyfills.mjs"; ///// must be first //////
 ////////////////////////////////////////////////////
 import { DeskThing } from "@deskthing/server";
-import { DESKTHING_EVENTS, SETTING_TYPES } from "@deskthing/types";
+import { DESKTHING_EVENTS } from "@deskthing/types";
 import path from "path";
-import { spawn } from "child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import readline from "readline";
 import os from "os";
 ////////////////////////////////////////////////////
-let pythonProcess = null as any;
+let pythonProcess: ChildProcessWithoutNullStreams | null = null;
 const isDev = process.env.NODE_ENV === 'development';
 const OS = os.platform(); // 'win32', 'darwin', 'linux', etc.
-let serverStatus = "stopped"; // 'loading', 'running', 'stopped' | might be used later
 let pythonVenvPath = '';
 // Decides the .venv path based on the OS and whether we're in development or production. In development, the .venv is located in public/shortcuts (since client code isn't bundled and can access sibling folders),
 //  while in production it's located in client/shortcuts (since client is bundled with shortcuts inside it).
@@ -79,7 +78,9 @@ const startPythonProcess = () => {
     });
 
     pythonProcess.stderr.on("data", (data : Buffer) => {
-        isDev && DeskThing.sendFatal(`Python error: ${data}`);
+        if (isDev) {
+            DeskThing.sendFatal(`Python error: ${data}`);
+        }
     });
 
     pythonProcess.on("close", (code : number) => {
@@ -87,7 +88,9 @@ const startPythonProcess = () => {
             type: "serverStatus",
             payload: "stopped",
         });
-        isDev && DeskThing.sendFatal(`Python process exited with code ${code}`);
+        if (isDev) {
+            DeskThing.sendFatal(`Python process exited with code ${code}`);
+        }
     });
 };
 
@@ -115,9 +118,9 @@ const stopPythonProcesses = () => {
  * Only starts Python if both processes are not already running.
  * Stopping is unconditional — any non-"1" payload will kill both processes.
  */
-DeskThing.on("focusUpdate", (data: any) => {
+DeskThing.on("focusUpdate", (data: { payload?: string }) => {
     if (data.payload) {
-        if (data.payload == "1" && (!pythonProcess || pythonProcess.killed)) {
+        if (data.payload === "1" && (!pythonProcess || pythonProcess.killed)) {
             startPythonProcess();
         } else {
             stopPythonProcesses();
@@ -130,10 +133,9 @@ DeskThing.on("focusUpdate", (data: any) => {
  * Starts when DeskThing server starts
  * 
  * @remarks
- * In dev, this starts the python service automatically
+ * In development we wait for the client to explicitly request live capture.
  */
 export const start = async () => {
-    isDev && startPythonProcess();
 };
 
 /**

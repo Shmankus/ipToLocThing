@@ -1,8 +1,8 @@
 //import Map from 'react-offline-map';
 
 import { useState, forwardRef, useImperativeHandle, useCallback, memo, useEffect, useRef } from 'react';
-const isDev = process.env.NODE_ENV === 'development';
 const CLEAN_MEMORY = false; // set to false to disable automatic cleanup of old points and lines every 10 seconds (not recommended, will cause memory leaks over time)
+const THROTTLE_MS = 500; // only add a new point for same IP if its been longer than THROTTLE_MS
 
 interface TemporaryPoint {
     id: string;   // Unique identifier used to target and remove the circle after its duration
@@ -34,10 +34,9 @@ interface TraceHop {
     ttl?: number;
     lat?: number;
     lon?: number;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
-const OPACITY = ".75";
 const ARROW_LEN = 16;
 const ARROW_WIDTH = 10;
 const MIN_ARROW_SEG_PX = 8;
@@ -187,9 +186,7 @@ const StaticMap = memo(() => {
     );
 });
 
-const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
-    const THROTTLE_MS = 250; // only add a new point for same IP if its been longer than THROTTLE_MS 
-
+const MapComponentHandle = forwardRef<MapComponentHandle>((_props, ref) => {
     // cleans up points every 10 seconds so i dont have to fix the memory leak somewhere
     const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -222,6 +219,37 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
             });
         }
     }, []);
+
+    /**
+     * Adds a temporary text label at the given coordinates on the map overlay.
+     *
+     * @param lat - Latitude in degrees (-90 to 90)
+     * @param lng - Longitude in degrees (-180 to 180)
+     * @param ip - IP address used for throttle deduplication
+     * @param text - Text content to display
+     * @param color - CSS color string for the text fill (e.g. 'white', '#FF0000')
+     * @param duration - Time in milliseconds before the text is removed. Pass 0 to keep permanently.
+     */
+    const addText = useCallback((lat: number, lng: number, ip: string, text: string, color: string, duration: number) => {
+        const id = `text-${lat}-${lng}-${ip}-${Math.random()}`;
+        const point = {
+            id,
+            lng: ((lng + 180) / 360) * window.innerWidth,
+            lat: ((90 - lat) / 180) * window.innerHeight - 12,
+            text,
+            fill: color,
+        };
+
+        textsRef.current.set(id, point);
+        scheduleRender();
+
+        if (duration > 0) {
+            addTimeout(() => {
+                textsRef.current.delete(id);
+                scheduleRender();
+            }, duration);
+        }
+    }, [scheduleRender]);
 
 
     /**
@@ -264,7 +292,7 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
         } else {
             addText(lat, lng, ip, ip, color, duration);
         }
-    }, [scheduleRender]);
+    }, [addText, scheduleRender]);
 
 
     /**
@@ -423,27 +451,6 @@ const MapComponentHandle = forwardRef<MapComponentHandle>((props, ref) => {
      * Coordinates are converted from degrees to pixel positions using the current window size.
      * Y axis is flipped and offset by 12px to avoid overlapping with circle markers.
      */
-    const addText = useCallback((lat: number, lng: number, ip: string, text: string, color: string, duration: number) => {
-        const id = `text-${lat}-${lng}-${ip}-${Math.random()}`;
-        const point = {
-            id,
-            lng: ((lng + 180) / 360) * window.innerWidth,
-            lat: ((90 - lat) / 180) * window.innerHeight - 12,
-            text,
-            fill: color,
-        };
-
-        textsRef.current.set(id, point);
-        scheduleRender();
-
-        if (duration > 0) {
-            addTimeout(() => {
-                textsRef.current.delete(id);
-                scheduleRender();
-            }, duration);
-        }
-    }, [scheduleRender]);
-
     /**
      * Exposes `addPoint` and `addText` on the forwarded ref so parent components can call them directly.
      * The dependency on `addCircle` ensures the exposed function updates if addCircle ever changes
