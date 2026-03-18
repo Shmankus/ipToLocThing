@@ -145,8 +145,7 @@ export default function App() {
     if (isDev && !hasRequestedLiveStart.current) {
       setServerStatus('loading')
       DeskThing.send({
-        type: 'focusUpdate',
-        payload: '1',
+        type: 'liveMapStart',
       })
       hasRequestedLiveStart.current = true
     }

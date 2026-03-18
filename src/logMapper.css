@@ -164,7 +164,7 @@
 .log-mapper__controls {
   position: absolute;
   left: 10px;
-  top: 84px;
+  bottom: 10px;
   z-index: 11;
   display: flex;
   gap: 6px;

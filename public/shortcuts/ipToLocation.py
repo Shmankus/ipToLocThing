@@ -19,6 +19,11 @@ geo_cache = {}  # cache for ip's and their info
 ping_cache = {}  # cache for ip's and their ping
 trace_cache = {}  # cache for ip's and their traceroute info
 scan_cache = {}
+## sets to track pending background tasks to avoid duplicates
+pending_pings = set()  # track IPs currently being pinged
+pending_traces = set()
+pending_scans = set()
+
 my_ip = get_if_addr(conf.iface)  # used ip on device
 
 is_dev = "--dev" in sys.argv
@@ -30,6 +35,32 @@ last_log_write = 0.0
 ## GLOBALS
 MAX_TRACE_JUMPS = 10
 LOG_WRITE_INTERVAL_SEC = 5.0
+
+
+
+# Load CSV into memory at startup
+ip_db = []
+with open(os.getenv("CSV_PATH"), mode="r", newline="") as file:
+    reader = csv.reader(file)
+    next(reader, None)
+    for row in reader:
+        try:
+            # CSV schema: ... country (3), province (4), latitude (6), longitude (7)
+            ip_db.append(
+                (
+                    int(row[0]),
+                    int(row[1]),
+                    float(row[6]),
+                    float(row[7]),
+                    str(row[3]),
+                    str(row[4]),
+                    str(row[2]),
+                )
+            )
+        except (ValueError, IndexError):
+            continue
+print(json.dumps({"status": "ready", "length": len(ip_db)}), flush=True)
+
 
 
 def binary_search(arr, x):
@@ -47,6 +78,11 @@ def binary_search(arr, x):
             high = mid - 1
 
     return -1
+
+
+########################################
+#             LOGS                    #
+########################################
 
 
 def create_log_file(base_dir: str) -> str:
@@ -77,44 +113,6 @@ def persist_log_if_needed(force: bool = False) -> None:
     write_log_snapshot(log_file, payload)
     last_log_write = now
     log_dirty = False
-
-
-pending_scans = set()
-
-
-def port_scan(ip: str, ports: list[int]) -> dict:
-    """
-    Performs a basic TCP SYN scan on the given IP and ports using Scapy.
-
-    Args:
-        ip: Target IP address in dotted-decimal format
-        ports: List of port numbers to scan
-
-    Returns:
-        Dictionary mapping port numbers to their status ('open', 'closed', 'filtered')
-
-    Notes:
-        Requires admin/root privileges. Use a small port list to avoid blocking the main thread.
-    """
-    results = {}
-    for port in ports:
-        pkt = IP(dst=ip) / TCP(dport=port, flags="S")
-        reply = sr1(pkt, timeout=1, verbose=0)
-
-        if reply is None:
-            results[port] = "filtered"
-        elif reply.haslayer(TCP):
-            if reply[TCP].flags == 0x12:  # SYN-ACK
-                results[port] = "open"
-            elif reply[TCP].flags == 0x14:  # RST-ACK
-                results[port] = "closed"
-
-    return results
-
-
-def scan_and_cache(ip):
-    results = port_scan(ip, [80, 443, 22, 21, 8080])
-    scan_cache[ip] = results
 
 
 # saves the average time to search for the CSV file
@@ -162,13 +160,6 @@ def get_geolocation_CSV(ip):
     if ip_int is None:
         return
     location = {}
-    # for start, end, lat, lon, country, province in ip_db:
-    #     if start <= ip_int <= end:
-    #         endTime = datetime.datetime.now()
-    #         saveAvgTime(startTime, endTime)
-    #         location = {"lat": lat, "lon": lon, "ip": ip, "locLookupTime": avgTTC, "country": country, "province": province}
-    #         geo_cache[ip] = location
-    #         return location
     endTime = datetime.datetime.now()
     index = binary_search(ip_db, ip_int)
     saveAvgTime(startTime, endTime)
@@ -186,6 +177,21 @@ def get_geolocation_CSV(ip):
         location = {"lat": ip_db[index][2], "lon": ip_db[index][3]}
     geo_cache[ip] = location
     return location
+
+
+def guess_os(packet):
+    ttl = packet[IP].ttl
+    if ttl <= 64:
+        return "Linux/Mac"
+    elif ttl <= 128:
+        return "Windows"
+    else:
+        return "Unknown"
+    
+
+########################################
+#             PING                   #
+########################################
 
 
 def get_ping(ip):
@@ -209,9 +215,6 @@ def get_ping(ip):
     return None
 
 
-pending_pings = set()  # track IPs currently being pinged
-
-
 def ping_and_cache(ip):
     """
     Grabs the ping from get_ping() and caches it, then discards it from the set queue
@@ -225,7 +228,9 @@ def ping_and_cache(ip):
     pending_pings.discard(ip)
 
 
-pending_traces = set()
+########################################
+#             TRACE                   #
+########################################
 
 
 def trace_and_cache(ip):
@@ -240,18 +245,24 @@ def trace_and_cache(ip):
     result, _ = traceroute(ip, maxttl=MAX_TRACE_JUMPS, verbose=0)
     hops = []
     for snd, rcv in result:
-        location = geo_cache.get(rcv.src) or get_geolocation_CSV(rcv.src)
+        ipInfo = geo_cache.get(rcv.src) or get_geolocation_CSV(rcv.src)
         if is_dev:
+            if ipInfo and rcv.src not in scan_cache and rcv.src not in pending_scans:
+                pending_scans.add(rcv.src)
+                executor.submit(scan_and_cache, rcv.src)
             hops.append(
                 {
                     "ttl": snd.ttl,
                     "ip": rcv.src,
                     "rtt": round((rcv.time - snd.sent_time) * 1000, 2),
-                    "lon": location["lon"] if location else None,
-                    "lat": location["lat"] if location else None,
-                    "country": location["country"] if location else None,
-                    "province": location["province"] if location else None,
-                    "region": location["region"] if location else None,
+                    "lon": ipInfo["lon"] if ipInfo else None,
+                    "lat": ipInfo["lat"] if ipInfo else None,
+                    "country": ipInfo["country"] if ipInfo else None,
+                    "province": ipInfo["province"] if ipInfo else None,
+                    "region": ipInfo["region"] if ipInfo else None,
+                    "nmap": scan_cache.get(rcv.src, None) if ipInfo else None,
+                    "OS": guess_os(rcv) if ipInfo else None,
+                    
                 }
             )
         else:
@@ -260,16 +271,64 @@ def trace_and_cache(ip):
                     "ttl": snd.ttl,
                     "ip": rcv.src,
                     "rtt": round((rcv.time - snd.sent_time) * 1000, 2),
-                    "lon": location["lon"] if location else None,
-                    "lat": location["lat"] if location else None,
+                    "lon": ipInfo["lon"] if ipInfo else None,
+                    "lat": ipInfo["lat"] if ipInfo else None,
                 }
             )
     trace_cache[ip] = hops
     pending_traces.discard(ip)
 
 
-# helper function that collects the ip from the packet and prints the json for nodejs
-def packet_callback(packet):
+########################################
+#             NMAP                    #
+########################################
+
+
+def port_scan(ip: str, ports: list[int]) -> dict:
+    """
+    Performs a basic TCP SYN scan on the given IP and ports using Scapy.
+
+    Args:
+        ip: Target IP address in dotted-decimal format
+        ports: List of port numbers to scan
+
+    Returns:
+        Dictionary mapping port numbers to their status ('open', 'closed', 'filtered')
+
+    Notes:
+        Requires admin/root privileges. Use a small port list to avoid blocking the main thread.
+    """
+    results = {}
+    for port in ports:
+        pkt = IP(dst=ip) / TCP(dport=port, flags="S")
+        reply = sr1(pkt, timeout=1, verbose=0)
+
+        if reply is None:
+            results[port] = "filtered"
+        elif reply.haslayer(TCP):
+            if reply[TCP].flags == 0x12:  # SYN-ACK
+                results[port] = "open"
+            elif reply[TCP].flags == 0x14:  # RST-ACK
+                results[port] = "closed"
+
+    return results
+
+
+def scan_and_cache(ip):
+    results = port_scan(ip, [80, 443, 22, 21, 8080])
+    scan_cache[ip] = results
+    pending_scans.discard(ip)
+
+
+
+
+########################################
+#             MAIN LOOP                #
+########################################
+ 
+
+
+def packetSniffer(packet):
     """
     If there is an ip component to the packet, we get both the source and destination, if either is me then we use the other
     we check geo cache to see if that is cached already and if not we find the geolocation and cache it
@@ -294,19 +353,19 @@ def packet_callback(packet):
 
         if external_ip not in ["127.0.0.1", my_ip]:
             if external_ip in geo_cache:
-                location = geo_cache[external_ip]
+                ipInfo = geo_cache[external_ip]
             else:
-                location = get_geolocation_CSV(external_ip)
+                ipInfo = get_geolocation_CSV(external_ip)
 
             # Add this check to prevent NoneType errors
-            if location is None or location["lat"] == 0 or location["lon"] == 0:
+            if ipInfo is None or ipInfo["lat"] == 0 or ipInfo["lon"] == 0:
                 return
 
             # Kick off ping in background if not already cached or pending
             if external_ip not in ping_cache and external_ip not in pending_pings:
                 pending_pings.add(external_ip)
                 executor.submit(ping_and_cache, external_ip)
-            location["ping"] = ping_cache.get(external_ip, None)
+            ipInfo["ping"] = ping_cache.get(external_ip, None)
 
             if external_ip not in trace_cache and external_ip not in pending_traces:
                 pending_traces.add(external_ip)
@@ -316,41 +375,21 @@ def packet_callback(packet):
                 pending_scans.add(external_ip)
                 executor.submit(scan_and_cache, external_ip)
 
-            location["nmap"] = scan_cache.get(external_ip, None)
-            location["trace"] = trace_cache.get(external_ip, None)
-            location["direction"] = direction
-            location["tracedIps"] = len(trace_cache)
-            location["uniqueIPs"] = len(geo_cache)
+
+            ipInfo["OperatingSystem"] = guess_os(packet)
+            ipInfo["nmap"] = scan_cache.get(external_ip, None)
+            ipInfo["trace"] = trace_cache.get(external_ip, None)
+            ipInfo["direction"] = direction
+            ipInfo["tracedIps"] = len(trace_cache)
+            ipInfo["uniqueIPs"] = len(geo_cache)
 
             log_dirty = True
             persist_log_if_needed()
 
-            print(json.dumps(location))
+            print(json.dumps(ipInfo), flush=True)
             sys.stdout.flush()
 
 
-# Load CSV into memory at startup
-ip_db = []
-with open(os.getenv("CSV_PATH"), mode="r", newline="") as file:
-    reader = csv.reader(file)
-    next(reader, None)
-    for row in reader:
-        try:
-            # CSV schema: ... country (3), province (4), latitude (6), longitude (7)
-            ip_db.append(
-                (
-                    int(row[0]),
-                    int(row[1]),
-                    float(row[6]),
-                    float(row[7]),
-                    str(row[3]),
-                    str(row[4]),
-                    str(row[2]),
-                )
-            )
-        except (ValueError, IndexError):
-            continue
-print(json.dumps({"status": "ready", "length": len(ip_db)}), flush=True)
 
 
 def on_exit():
@@ -381,4 +420,4 @@ if is_dev:
 atexit.register(on_exit)
 
 ## constant packet sniff in real time
-sniff(prn=packet_callback, store=0, filter="ip")
+sniff(prn=packetSniffer, store=0, filter="ip")

@@ -8,6 +8,7 @@ import readline from "readline";
 import os from "os";
 ////////////////////////////////////////////////////
 let pythonProcess: ChildProcessWithoutNullStreams | null = null;
+let hasExplicitLiveStart = false;
 const isDev = process.env.NODE_ENV === 'development';
 const OS = os.platform(); // 'win32', 'darwin', 'linux', etc.
 let pythonVenvPath = '';
@@ -120,11 +121,25 @@ const stopPythonProcesses = () => {
  */
 DeskThing.on("focusUpdate", (data: { payload?: string }) => {
     if (data.payload) {
+        if (isDev && !hasExplicitLiveStart) {
+            // In dev, wait for an explicit live-start request before allowing focus events.
+            return;
+        }
         if (data.payload === "1" && (!pythonProcess || pythonProcess.killed)) {
             startPythonProcess();
         } else {
             stopPythonProcesses();
         }
+    }
+});
+
+/**
+ * Explicitly start the live map pipeline (dev + prod).
+ */
+DeskThing.on("liveMapStart", () => {
+    hasExplicitLiveStart = true;
+    if (!pythonProcess || pythonProcess.killed) {
+        startPythonProcess();
     }
 });
 

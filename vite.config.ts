@@ -28,6 +28,23 @@ function devLogsPlugin(): Plugin {
             .readdirSync(logsDir)
             .filter((fileName) => /^log.*\.json$/i.test(fileName))
             .sort((left, right) => right.localeCompare(left))
+            .map((fileName) => {
+              const filePath = path.join(logsDir, fileName)
+              let entryCount = 0
+              try {
+                const raw = fs.readFileSync(filePath, 'utf-8')
+                const parsed = JSON.parse(raw) as { geo_cache?: unknown }
+                if (Array.isArray(parsed?.geo_cache)) {
+                  entryCount = parsed.geo_cache.length
+                }
+              } catch {
+                entryCount = 0
+              }
+              return {
+                name: fileName,
+                count: entryCount,
+              }
+            })
 
           res.setHeader('Content-Type', 'application/json; charset=utf-8')
           res.end(JSON.stringify(logFiles))
