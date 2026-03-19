@@ -26,6 +26,31 @@
   min-height: 0;
 }
 
+.log-mapper__resize-handle {
+  flex: 0 0 8px;
+  width: 8px;
+  cursor: col-resize;
+  position: relative;
+  background: rgba(255, 255, 255, 0.04);
+  transition: background 120ms ease;
+}
+
+.log-mapper__resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.log-mapper__resize-handle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .log-mapper__picker {
   display: flex;
   align-items: center;
@@ -402,6 +427,10 @@
     flex: 0 0 34vh;
     border-right: none;
     border-top: 1px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .log-mapper__resize-handle {
+    display: none;
   }
 
   .log-mapper__hop-list {

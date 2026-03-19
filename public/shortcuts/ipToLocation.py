@@ -259,6 +259,7 @@ def trace_and_cache(ip):
                     "lat": ipInfo["lat"] if ipInfo else None,
                     "country": ipInfo["country"] if ipInfo else None,
                     "province": ipInfo["province"] if ipInfo else None,
+                    "ping": ping_cache.get(rcv.src, None) if ipInfo else None,
                     "region": ipInfo["region"] if ipInfo else None,
                     "nmap": scan_cache.get(rcv.src, None) if ipInfo else None,
                     "OS": guess_os(rcv) if ipInfo else None,

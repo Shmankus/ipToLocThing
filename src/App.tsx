@@ -20,7 +20,15 @@ type IpLocationPayload = {
   direction?: 'in' | 'out'
 }
 
-function ScreenViewer({ serverStatus }: { serverStatus: string }) {
+function ScreenViewer({
+  serverStatus,
+  hasLiveData,
+  onLiveData,
+}: {
+  serverStatus: string
+  hasLiveData: boolean
+  onLiveData: () => void
+}) {
   const [locUniqueIps, setLocUniqueIps] = useState(0)
   const [tracedIps, setTracedIps] = useState(0)
   const mapRef = useRef<MapComponentHandleType>(null)
@@ -62,6 +70,7 @@ function ScreenViewer({ serverStatus }: { serverStatus: string }) {
           console.log(payload)
         }
 
+        onLiveData()
         setLocUniqueIps(Number.parseFloat(String(payload.uniqueIPs ?? 0)))
         setTracedIps(Number(payload.tracedIps ?? 0))
 
@@ -94,7 +103,8 @@ function ScreenViewer({ serverStatus }: { serverStatus: string }) {
   }, [])
 
   const showStartupOverlay =
-    serverStatus === 'loading' || serverStatus === 'stopped' || serverStatus === 'ERROR'
+    serverStatus === 'ERROR' ||
+    (!hasLiveData && (serverStatus === 'loading' || serverStatus === 'stopped'))
   const overlayMessage = isDev ? '| Loading live map... |' : '| Tap on screen to start |'
 
   return (
@@ -131,6 +141,7 @@ export default function App() {
   const [serverStatus, setServerStatus] = useState('stopped')
   const [selectedLogName, setSelectedLogName] = useState('')
   const [selectedLogEntries, setSelectedLogEntries] = useState<Entry[]>([])
+  const [hasLiveData, setHasLiveData] = useState(false)
   const hasRequestedLiveStart = useRef(false)
 
   useEffect(() => {
@@ -170,7 +181,7 @@ export default function App() {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black text-white">
       {isDev && (
-        <div className="pointer-events-auto absolute right-4 top-4 z-50 flex gap-2">
+        <div className="pointer-events-auto absolute right-4 bottom-12 z-50 flex gap-2">
           <button
             className={`rounded-md border px-3 py-2 text-sm ${
               activeView === 'screen'
@@ -197,7 +208,13 @@ export default function App() {
       )}
 
       {activeView === 'screen' ? (
-        <ScreenViewer serverStatus={serverStatus} />
+        <ScreenViewer
+          serverStatus={serverStatus}
+          hasLiveData={hasLiveData}
+          onLiveData={() => {
+            setHasLiveData(true)
+          }}
+        />
       ) : activeView === 'log-picker' || !selectedLogName ? (
         <LogMapperPickerPage onOpenLog={openSavedLog} />
       ) : (

@@ -28,6 +28,11 @@ const MAX_ZOOM = 6
 const MIN_ZOOM = 0.6
 const ZOOM_STEP = 1.2
 const PAN_THRESHOLD = 3
+const DEFAULT_LEFT_WIDTH = 200
+const DEFAULT_RIGHT_WIDTH = 200
+const MIN_PANEL_WIDTH = 175
+const MIN_MAP_WIDTH = 175
+const RESIZE_HANDLE_WIDTH = 8
 
 type LogMapperViewProps = {
   activeLogName: string
@@ -50,7 +55,10 @@ export default function LogMapperView({
   const [isPanning, setIsPanning] = useState(false)
   const [plottedEntries, setPlottedEntries] = useState(() => buildPlottedEntries([], 0, 0))
   const [segmentCount, setSegmentCount] = useState(0)
+  const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH)
+  const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH)
 
+  const workspaceRef = useRef<HTMLDivElement | null>(null)
   const mapWrapRef = useRef<HTMLDivElement | null>(null)
   const overlayRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<DragState>({
@@ -60,6 +68,19 @@ export default function LogMapperView({
     lastY: 0,
   })
   const viewRef = useRef(view)
+  const resizeRef = useRef<{
+    active: 'left' | 'right' | null
+    startX: number
+    startLeft: number
+    startRight: number
+    containerWidth: number
+  }>({
+    active: null,
+    startX: 0,
+    startLeft: DEFAULT_LEFT_WIDTH,
+    startRight: DEFAULT_RIGHT_WIDTH,
+    containerWidth: 0,
+  })
 
   const selectedEntry = selectedEntries[selectedEntryIndex] ?? null
   const selectedHop = selectedEntry && selectedHopIndex !== null
@@ -122,6 +143,36 @@ export default function LogMapperView({
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
+      if (resizeRef.current.active) {
+        const delta = event.clientX - resizeRef.current.startX
+        const containerWidth = resizeRef.current.containerWidth
+        const maxLeft = containerWidth
+          - MIN_MAP_WIDTH
+          - resizeRef.current.startRight
+          - (RESIZE_HANDLE_WIDTH * 2)
+        const maxRight = containerWidth
+          - MIN_MAP_WIDTH
+          - resizeRef.current.startLeft
+          - (RESIZE_HANDLE_WIDTH * 2)
+
+        if (resizeRef.current.active === 'left') {
+          const nextLeft = clamp(
+            resizeRef.current.startLeft + delta,
+            MIN_PANEL_WIDTH,
+            Math.max(MIN_PANEL_WIDTH, maxLeft),
+          )
+          setLeftWidth(nextLeft)
+        } else {
+          const nextRight = clamp(
+            resizeRef.current.startRight - delta,
+            MIN_PANEL_WIDTH,
+            Math.max(MIN_PANEL_WIDTH, maxRight),
+          )
+          setRightWidth(nextRight)
+        }
+        return
+      }
+
       if (!dragRef.current.panning) return
 
       const dx = event.clientX - dragRef.current.lastX
@@ -144,6 +195,7 @@ export default function LogMapperView({
     const handleMouseUp = () => {
       dragRef.current.panning = false
       setIsPanning(false)
+      resizeRef.current.active = null
     }
 
     window.addEventListener('mousemove', handleMouseMove)
@@ -264,13 +316,42 @@ export default function LogMapperView({
     setIsPanning(true)
   }
 
+  function startResize(side: 'left' | 'right', event: React.MouseEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const containerWidth = workspaceRef.current?.clientWidth ?? 0
+    resizeRef.current = {
+      active: side,
+      startX: event.clientX,
+      startLeft: leftWidth,
+      startRight: rightWidth,
+      containerWidth,
+    }
+  }
+
+  const workspaceStyle: React.CSSProperties = {
+    '--log-mapper-left-width': `${leftWidth}px`,
+    '--log-mapper-right-width': `${rightWidth}px`,
+  } as React.CSSProperties
+
   return (
     <div className="log-mapper">
-      <div className="log-mapper__workspace">
+      <div className="log-mapper__workspace" ref={workspaceRef} style={workspaceStyle}>
         <LogMapperIpBrowser
           ipGroups={ipGroups}
           onSelectIp={selectEntriesForIp}
           selectedIp={selectedIp}
+        />
+
+        <div
+          className="log-mapper__resize-handle is-left"
+          onMouseDown={(event) => startResize('left', event)}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize left panel"
         />
 
         <LogMapperMapPane
@@ -296,6 +377,14 @@ export default function LogMapperView({
           selectedEntry={selectedEntry}
           selectedHop={selectedHop}
           view={view}
+        />
+
+        <div
+          className="log-mapper__resize-handle is-right"
+          onMouseDown={(event) => startResize('right', event)}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize right panel"
         />
 
         <LogMapperInspector
