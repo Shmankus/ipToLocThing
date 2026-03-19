@@ -1,892 +1,333 @@
-import { startTransition, useEffect, useRef, useState } from 'react'
+/**
+ * LogMapperView is the top-level coordinator for the loaded-log map page.
+ *
+ * This file is where the interactive state for a single opened log lives:
+ * - keeping track of the currently selected IP / entry / hop
+ * - tracking pan and zoom state for the map
+ * - translating pointer input into map-space selection
+ * - deriving grouped and projected data that child components can render
+ *
+ * The picker/listing screen now lives separately at the app level, so this component
+ * no longer fetches logs or renders the picker as an overlay. Its job is to take an
+ * already-loaded log and wire together the left-side IP browser, center map pane,
+ * and right-side inspector. If something is wrong with selection or pan/zoom behavior,
+ * this is the first file to inspect.
+ */
+import { useEffect, useRef, useState } from 'react'
 import './logMapper.css'
-import {
-    buildPlottedEntries,
-    colorSet,
-    comparePortNames,
-    formatCoordinates,
-    formatFieldValue,
-    formatKeyLabel,
-    getNmapData,
-    getRoutePoints,
-    hasCoordinates,
-    normalizeEntries,
-    projectPoint,
-    readableLogTime,
-} from './logMapperHelpers'
-import type { Entry, RawEntry } from './logMapperHelpers'
+import { buildPlottedEntries } from './logMapperHelpers'
+import type { Entry } from './logMapperHelpers'
+import LogMapperInspector from './logMapper/LogMapperInspector'
+import LogMapperIpBrowser from './logMapper/LogMapperIpBrowser'
+import LogMapperMapPane from './logMapper/LogMapperMapPane'
+import type { DragState, MapSize, ViewState } from './logMapper/types'
+import { buildIpGroups, clamp, entryIpLabel } from './logMapper/utils'
 
-const DEFAULT_PICKER_SUBTITLE = 'Select a capture to open the map view.'
 const CLICK_RADIUS = 8
 const MAX_ZOOM = 6
 const MIN_ZOOM = 0.6
 const ZOOM_STEP = 1.2
 const PAN_THRESHOLD = 3
-const POINT_RADIUS = 3
-const SELECTED_POINT_RADIUS = 4.5
-const HOP_RADIUS = 2.4
-const SELECTED_HOP_RADIUS = 4.2
-const MAP_IMAGE_SRC = `${import.meta.env.BASE_URL}Icons/map_simple.png`
-const ARROW_LEN = 16
-const ARROW_WIDTH = 10
-const MIN_ARROW_SEG_PX = 8
-const ARROW_LONG_SEG_PX = 220
-const ARROW_SHORT_BUCKET = 18
-const ARROW_LONG_BUCKET = 55
 
-// Current pan/zoom transform applied to both the map image and SVG overlay.
-type ViewState = {
-    scale: number
-    tx: number
-    ty: number
+type LogMapperViewProps = {
+  activeLogName: string
+  entries: Entry[]
+  onOpenPicker: () => void
 }
 
-// Cached stage size so lat/lon can be projected into the current pixel space.
-type MapSize = {
-    width: number
-    height: number
-}
+export default function LogMapperView({
+  activeLogName,
+  entries,
+  onOpenPicker,
+}: LogMapperViewProps) {
+  const [selectedEntries, setSelectedEntries] = useState<Entry[]>([])
+  const [selectedEntryIndex, setSelectedEntryIndex] = useState(0)
+  const [selectedHopIndex, setSelectedHopIndex] = useState<number | null>(null)
+  const [isEntryListExpanded, setIsEntryListExpanded] = useState(false)
 
-// Mutable drag state lives in a ref so mousemove does not rerender on every frame.
-type DragState = {
-    panning: boolean
-    movedWhilePanning: boolean
-    lastX: number
-    lastY: number
-}
+  const [view, setView] = useState<ViewState>({ scale: 1, tx: 0, ty: 0 })
+  const [mapSize, setMapSize] = useState<MapSize>({ width: 0, height: 0 })
+  const [isPanning, setIsPanning] = useState(false)
+  const [plottedEntries, setPlottedEntries] = useState(() => buildPlottedEntries([], 0, 0))
+  const [segmentCount, setSegmentCount] = useState(0)
 
-type RouteLine = {
-    id: string
-    x1: number
-    y1: number
-    x2: number
-    y2: number
-    color: string
-    reverseArrow?: boolean
-}
+  const mapWrapRef = useRef<HTMLDivElement | null>(null)
+  const overlayRef = useRef<SVGSVGElement | null>(null)
+  const dragRef = useRef<DragState>({
+    panning: false,
+    movedWhilePanning: false,
+    lastX: 0,
+    lastY: 0,
+  })
+  const viewRef = useRef(view)
 
-function clamp(value: number, min: number, max: number): number {
-    return Math.min(max, Math.max(min, value))
-}
+  const selectedEntry = selectedEntries[selectedEntryIndex] ?? null
+  const selectedHop = selectedEntry && selectedHopIndex !== null
+    ? selectedEntry.trace[selectedHopIndex] ?? null
+    : null
+  const ipGroups = buildIpGroups(entries)
+  const selectedIp = selectedEntry ? entryIpLabel(selectedEntry) : ''
+  const selectedIpGroup = selectedEntry
+    ? ipGroups.find((group) => group.ip === selectedIp) ?? null
+    : null
+  const selectionSharesSameIp = Boolean(selectedEntry) &&
+    selectedEntries.every((entry) => entryIpLabel(entry) === selectedIp)
 
-function getMidArrowPoints(x1: number, y1: number, x2: number, y2: number): string | null {
-    const dx = x2 - x1
-    const dy = y2 - y1
-    const segLen = Math.hypot(dx, dy)
-    if (segLen < MIN_ARROW_SEG_PX) return null
-    const a = Math.atan2(dy, dx)
-    const mx = (x1 + x2) / 2
-    const my = (y1 + y2) / 2
-    const tipX = mx + Math.cos(a) * (ARROW_LEN / 2)
-    const tipY = my + Math.sin(a) * (ARROW_LEN / 2)
-    const backX = mx - Math.cos(a) * (ARROW_LEN / 2)
-    const backY = my - Math.sin(a) * (ARROW_LEN / 2)
-    const nx = Math.cos(a + Math.PI / 2) * (ARROW_WIDTH / 2)
-    const ny = Math.sin(a + Math.PI / 2) * (ARROW_WIDTH / 2)
-    return `${tipX},${tipY} ${backX + nx},${backY + ny} ${backX - nx},${backY - ny}`
-}
+  useEffect(() => {
+    viewRef.current = view
+  }, [view])
 
-function getArrowKeys(line: RouteLine) {
-    const ax1 = line.reverseArrow ? line.x2 : line.x1
-    const ay1 = line.reverseArrow ? line.y2 : line.y1
-    const ax2 = line.reverseArrow ? line.x1 : line.x2
-    const ay2 = line.reverseArrow ? line.y1 : line.y2
-    const len = Math.hypot(ax2 - ax1, ay2 - ay1)
-    if (len < MIN_ARROW_SEG_PX) return null
-    const bucket = len > ARROW_LONG_SEG_PX ? ARROW_LONG_BUCKET : ARROW_SHORT_BUCKET
-    const q = (v: number) => Math.round(v / bucket) * bucket
-    const fwd = `${q(ax1)},${q(ay1)}->${q(ax2)},${q(ay2)}`
-    const rev = `${q(ax2)},${q(ay2)}->${q(ax1)},${q(ay1)}`
-    const undirected = fwd < rev ? fwd : rev
-    return { undirected, directed: fwd, reverseDirected: rev }
-}
+  useEffect(() => {
+    setIsEntryListExpanded(false)
+  }, [selectedEntries])
 
-/**
- * Builds the small status panel shown over the map.
- * Keeping it as a single string preserves the original preformatted debug-style UI.
- */
-function statusText(
-    activeLogName: string,
-    entryCount: number,
-    plottedCount: number,
-    segmentCount: number,
-    selectedEntry: Entry | null,
-): string {
-    const lines = [
-        `Log: ${activeLogName ? `logs/${activeLogName}` : 'none'}`,
-        `Entries: ${entryCount}`,
-        `Plotted points: ${plottedCount}`,
-        `Trace segments: ${segmentCount}`,
-    ]
+  useEffect(() => {
+    setSelectedEntries([])
+    setSelectedEntryIndex(0)
+    setSelectedHopIndex(null)
+    setIsEntryListExpanded(false)
+    setView({ scale: 1, tx: 0, ty: 0 })
+  }, [activeLogName])
 
-    if (selectedEntry?.ip) {
-        lines.push(`Selected: ${selectedEntry.ip}`)
+  useEffect(() => {
+    const element = mapWrapRef.current
+    if (!element) return
+
+    const updateSize = () => {
+      setMapSize({
+        width: element.clientWidth,
+        height: element.clientHeight,
+      })
     }
 
-    return lines.join('\n')
-}
+    updateSize()
 
-/**
- * Renders object fields in a stable order for the inspector.
- * We hide bulky/internal fields here and format the remaining values consistently.
- */
-function renderRows(data: Record<string, unknown>, hiddenKeys: string[] = []) {
-    const hidden = new Set(hiddenKeys)
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(element)
 
-    return Object.keys(data)
-        .filter((key) => !hidden.has(key))
-        .sort()
-        .map((key) => (
-            <div className="log-mapper__row" key={key}>
-                {formatKeyLabel(key)}: {formatFieldValue(key, data[key])}
-            </div>
-        ))
-}
-
-export default function LogMapperView() {
-    // Log picker / loading state.
-    const [logNames, setLogNames] = useState<string[]>([])
-    const [logEntryCounts, setLogEntryCounts] = useState<Record<string, number>>({})
-    const [pickerSubtitle, setPickerSubtitle] = useState(DEFAULT_PICKER_SUBTITLE)
-    const [pickerError, setPickerError] = useState<string | null>(null)
-    const [isLoadingLogs, setIsLoadingLogs] = useState(false)
-    const [loadingLogName, setLoadingLogName] = useState<string | null>(null)
-    const [isPickerOpen, setIsPickerOpen] = useState(true)
-
-    // Loaded log data and current map selection.
-    const [activeLogName, setActiveLogName] = useState('')
-    const [entries, setEntries] = useState<Entry[]>([])
-    const [selectedEntries, setSelectedEntries] = useState<Entry[]>([])
-    const [selectedEntryIndex, setSelectedEntryIndex] = useState(0)
-    const [selectedHopIndex, setSelectedHopIndex] = useState<number | null>(null)
-
-    // Viewport and projected geometry state.
-    const [view, setView] = useState<ViewState>({ scale: 1, tx: 0, ty: 0 })
-    const [mapSize, setMapSize] = useState<MapSize>({ width: 0, height: 0 })
-    const [isPanning, setIsPanning] = useState(false)
-    const [plottedEntries, setPlottedEntries] = useState(() => buildPlottedEntries([], 0, 0))
-    const [segmentCount, setSegmentCount] = useState(0)
-
-    const mapWrapRef = useRef<HTMLDivElement | null>(null)
-    const overlayRef = useRef<SVGSVGElement | null>(null)
-    const dragRef = useRef<DragState>({
-        panning: false,
-        movedWhilePanning: false,
-        lastX: 0,
-        lastY: 0,
-    })
-    const viewRef = useRef(view)
-
-    // Derived selection objects used by the inspector and highlight overlay.
-    const selectedEntry = selectedEntries[selectedEntryIndex] ?? null
-    const selectedPlottedEntry = selectedEntry
-        ? plottedEntries.find((plotted) => plotted.entry === selectedEntry) ?? null
-        : null
-    const selectedHop = selectedEntry && selectedHopIndex !== null
-        ? selectedEntry.trace[selectedHopIndex] ?? null
-        : null
-    const nmapData = getNmapData(selectedEntry)
-    const hopNmapData = selectedHop ? getNmapData(selectedHop as unknown as Entry) : null
-    const routeLines = plottedEntries.flatMap((plotted) => {
-        const colors = colorSet(plotted.entry.direction)
-        const reverseArrow = plotted.entry.direction === 'in'
-        return plotted.routeSegments.map((segment) => ({
-            id: segment.key,
-            x1: segment.start.x,
-            y1: segment.start.y,
-            x2: segment.end.x,
-            y2: segment.end.y,
-            color: colors.route,
-            reverseArrow,
-        }))
-    })
-    const selectedRouteLines = selectedPlottedEntry
-        ? selectedPlottedEntry.routeSegments.map((segment) => {
-            const colors = colorSet(selectedPlottedEntry.entry.direction)
-            return {
-                id: `${segment.key}-selected`,
-                x1: segment.start.x,
-                y1: segment.start.y,
-                x2: segment.end.x,
-                y2: segment.end.y,
-                color: colors.activeRoute,
-                reverseArrow: selectedPlottedEntry.entry.direction === 'in',
-            }
-        })
-        : []
-
-    // Some pointer handlers need the latest transform immediately without waiting for rerender.
-    useEffect(() => {
-        viewRef.current = view
-    }, [view])
-
-    /**
-     * Watches the visible map container so routes/points can be reprojected whenever
-     * the stage changes size.
-     */
-    useEffect(() => {
-        const element = mapWrapRef.current
-        if (!element) return
-
-        const updateSize = () => {
-            setMapSize({
-                width: element.clientWidth,
-                height: element.clientHeight,
-            })
-        }
-
-        updateSize()
-
-        const observer = new ResizeObserver(updateSize)
-        observer.observe(element)
-
-        return () => {
-            observer.disconnect()
-        }
-    }, [])
-
-    /**
-     * Rebuilds projected map geometry whenever the loaded entries or stage size changes.
-     * This keeps the render pass itself mostly declarative.
-     */
-    useEffect(() => {
-        if (!mapSize.width || !mapSize.height) return
-
-        const nextPlottedEntries = buildPlottedEntries(entries, mapSize.width, mapSize.height)
-        setPlottedEntries(nextPlottedEntries)
-        setSegmentCount(
-            nextPlottedEntries.reduce((total, plottedEntry) => total + plottedEntry.routeSegments.length, 0),
-        )
-    }, [entries, mapSize.height, mapSize.width])
-
-    // Load the available local logs as soon as the view opens.
-    useEffect(() => {
-        void loadLogList()
-    }, [])
-
-    /**
-     * Global mouse listeners keep drag-pan working even if the pointer leaves the map bounds.
-     * Drag bookkeeping is stored in refs to avoid rendering on every mousemove.
-     */
-    useEffect(() => {
-        const handleMouseMove = (event: MouseEvent) => {
-            if (!dragRef.current.panning) return
-
-            const dx = event.clientX - dragRef.current.lastX
-            const dy = event.clientY - dragRef.current.lastY
-
-            if (Math.abs(dx) + Math.abs(dy) > PAN_THRESHOLD) {
-                dragRef.current.movedWhilePanning = true
-            }
-
-            dragRef.current.lastX = event.clientX
-            dragRef.current.lastY = event.clientY
-
-            setView((currentView) => ({
-                ...currentView,
-                tx: currentView.tx + dx,
-                ty: currentView.ty + dy,
-            }))
-        }
-
-        const handleMouseUp = () => {
-            dragRef.current.panning = false
-            setIsPanning(false)
-        }
-
-        window.addEventListener('mousemove', handleMouseMove)
-        window.addEventListener('mouseup', handleMouseUp)
-
-        return () => {
-            window.removeEventListener('mousemove', handleMouseMove)
-            window.removeEventListener('mouseup', handleMouseUp)
-        }
-    }, [])
-
-    /**
-     * Pulls the list of local JSON logs from the dev-only Vite endpoint.
-     * This endpoint only exists in development, so production cannot switch into this view.
-     */
-    async function loadLogList(nextSubtitle = DEFAULT_PICKER_SUBTITLE) {
-        setIsLoadingLogs(true)
-        setPickerError(null)
-        setPickerSubtitle(nextSubtitle)
-
-        try {
-            const response = await fetch('/__dev/logs')
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-            const payload = (await response.json()) as Array<string | { name?: unknown; count?: unknown }>
-            const nextLogNames: string[] = []
-            const nextLogCounts: Record<string, number> = {}
-            let needsCountHydration = false
-
-            for (const item of payload) {
-                const name = typeof item === 'string' ? item : String(item?.name ?? '')
-                if (!name || !/^log.*\.json$/i.test(name)) continue
-
-                nextLogNames.push(name)
-
-                if (item && typeof item === 'object') {
-                    const count = Number(item.count)
-                    if (Number.isFinite(count)) {
-                        nextLogCounts[name] = count
-                        continue
-                    }
-                }
-
-                needsCountHydration = true
-            }
-
-            setLogNames(nextLogNames)
-            setLogEntryCounts(nextLogCounts)
-
-            if (needsCountHydration && nextLogNames.length) {
-                void hydrateLogEntryCounts(nextLogNames)
-            }
-
-            if (!nextLogNames.length) {
-                setPickerError('No logs found in the local logs directory.')
-            }
-        } catch (error) {
-            setPickerError(`Failed to list local logs: ${String(error)}`)
-        } finally {
-            setIsLoadingLogs(false)
-        }
+    return () => {
+      observer.disconnect()
     }
+  }, [])
 
-    /**
-     * Loads a single log, normalizes the geo_cache payload, and resets the current
-     * selection/view so the new file opens from a known state.
-     */
-    async function loadLog(logName: string) {
-        setLoadingLogName(logName)
-        setPickerSubtitle(`Loading ${logName}...`)
-        setPickerError(null)
+  useEffect(() => {
+    if (!mapSize.width || !mapSize.height) return
 
-        try {
-            const response = await fetch(`/__dev/logs/${encodeURIComponent(logName)}`)
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-            const payload = (await response.json()) as { geo_cache?: RawEntry[] }
-            const nextEntries = normalizeEntries(payload.geo_cache)
-
-            startTransition(() => {
-                setEntries(nextEntries)
-                setActiveLogName(logName)
-                setSelectedEntries([])
-                setSelectedEntryIndex(0)
-                setSelectedHopIndex(null)
-                setView({ scale: 1, tx: 0, ty: 0 })
-                setIsPickerOpen(false)
-            })
-
-            setPickerSubtitle(DEFAULT_PICKER_SUBTITLE)
-        } catch (error) {
-            setPickerError(`Failed to load ${logName}: ${String(error)}`)
-            setIsPickerOpen(true)
-            setPickerSubtitle(DEFAULT_PICKER_SUBTITLE)
-        } finally {
-            setLoadingLogName(null)
-        }
-    }
-
-    async function hydrateLogEntryCounts(names: string[]) {
-        try {
-            await Promise.all(
-                names.map(async (name) => {
-                    const response = await fetch(`/__dev/logs/${encodeURIComponent(name)}`)
-                    if (!response.ok) return
-
-                    const payload = (await response.json()) as { geo_cache?: unknown }
-                    const count = Array.isArray(payload?.geo_cache) ? payload.geo_cache.length : 0
-
-                    setLogEntryCounts((current) => ({
-                        ...current,
-                        [name]: count,
-                    }))
-                }),
-            )
-        } catch {
-            // Best-effort only: counts are optional in the picker UI.
-        }
-    }
-
-    // Returns to the picker and clears any stale selection from the previous file.
-    function openPicker() {
-        setSelectedEntries([])
-        setSelectedEntryIndex(0)
-        setSelectedHopIndex(null)
-        setIsPickerOpen(true)
-        void loadLogList()
-    }
-
-    /**
-     * Zooms around the current cursor position instead of the screen center.
-     * That keeps the point under the pointer anchored during wheel zoom.
-     */
-    function zoomAt(screenX: number, screenY: number, factor: number) {
-        setView((currentView) => {
-            const nextScale = clamp(currentView.scale * factor, MIN_ZOOM, MAX_ZOOM)
-            if (nextScale === currentView.scale) return currentView
-
-            const ratio = nextScale / currentView.scale
-            return {
-                scale: nextScale,
-                tx: screenX - ((screenX - currentView.tx) * ratio),
-                ty: screenY - ((screenY - currentView.ty) * ratio),
-            }
-        })
-    }
-
-    function resetView() {
-        setView({ scale: 1, tx: 0, ty: 0 })
-    }
-
-    /**
-     * Converts a browser mouse position into map-space coordinates by accounting for
-     * both the current element bounds and the active pan/zoom transform.
-     */
-    function clientToMapPoint(clientX: number, clientY: number): { x: number; y: number; sx: number; sy: number } | null {
-        const overlay = overlayRef.current
-        if (!overlay || !mapSize.width || !mapSize.height) return null
-
-        const rect = overlay.getBoundingClientRect()
-        if (!rect.width || !rect.height) return null
-
-        const currentView = viewRef.current
-        const sx = (clientX - rect.left) * (mapSize.width / rect.width)
-        const sy = (clientY - rect.top) * (mapSize.height / rect.height)
-
-        return {
-            x: (sx - currentView.tx) / currentView.scale,
-            y: (sy - currentView.ty) / currentView.scale,
-            sx,
-            sy,
-        }
-    }
-
-    // Finds all destination points close to the click so stacked IPs can be cycled in the inspector.
-    function selectEntriesNear(clientX: number, clientY: number) {
-        const mapPoint = clientToMapPoint(clientX, clientY)
-        if (!mapPoint) return
-
-        const matches = plottedEntries
-            .filter((plotted) => Math.hypot(plotted.destination.x - mapPoint.x, plotted.destination.y - mapPoint.y) <= CLICK_RADIUS)
-            .map((plotted) => plotted.entry)
-
-        setSelectedEntries(matches)
-        setSelectedEntryIndex(0)
-        setSelectedHopIndex(null)
-    }
-
-    // Moves between overlapping entries that share the same click area.
-    function moveSelectedEntry(delta: number) {
-        if (selectedEntries.length < 2) return
-
-        setSelectedEntryIndex((currentIndex) => {
-            const nextIndex = currentIndex + delta + selectedEntries.length
-            return nextIndex % selectedEntries.length
-        })
-        setSelectedHopIndex(null)
-    }
-
-    // Ignore the synthetic click fired after a drag-pan so dragging does not also select a point.
-    function handleMapClick(event: React.MouseEvent<HTMLDivElement>) {
-        if (dragRef.current.movedWhilePanning) {
-            dragRef.current.movedWhilePanning = false
-            return
-        }
-
-        selectEntriesNear(event.clientX, event.clientY)
-    }
-
-    /**
-     * Matches the old standalone mapper behavior:
-     * ctrl+wheel zooms and plain wheel pans the current viewport.
-     */
-    function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
-        event.preventDefault()
-
-        const mapPoint = clientToMapPoint(event.clientX, event.clientY)
-        if (!mapPoint) return
-
-        if (event.ctrlKey) {
-            zoomAt(mapPoint.sx, mapPoint.sy, event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP)
-            return
-        }
-
-        setView((currentView) => ({
-            ...currentView,
-            tx: currentView.tx - event.deltaX,
-            ty: currentView.ty - event.deltaY,
-        }))
-    }
-
-    // Starts a left-button drag-pan gesture.
-    function handleMouseDown(event: React.MouseEvent<HTMLDivElement>) {
-        if (event.button !== 0) return
-
-        event.preventDefault()
-        dragRef.current.panning = true
-        dragRef.current.movedWhilePanning = false
-        dragRef.current.lastX = event.clientX
-        dragRef.current.lastY = event.clientY
-        setIsPanning(true)
-    }
-
-    function findLogSize(logName: string): string {
-        const entry = entries.find((e) => e.logName === logName)
-        const countFromList = logEntryCounts[logName]
-        const countFromLoaded = entry ? entries.filter((e) => e.logName === logName).length : undefined
-        const count = countFromList ?? countFromLoaded
-        if (count == null) return 'n/a'
-        return `${count} entries`
-    }
-
-    return (
-        <div className="log-mapper">
-            {/* Full-screen picker overlay for choosing which saved log to inspect. */}
-            <section className={`log-mapper__picker ${isPickerOpen ? '' : 'is-hidden'}`}>
-                <div className="log-mapper__picker-card">
-                    <h1 className="log-mapper__picker-title">Choose a Log</h1>
-                    <p className="log-mapper__picker-subtitle">{pickerSubtitle}</p>
-
-                    <div className="log-mapper__picker-list">
-                        {isLoadingLogs && <div className="log-mapper__picker-message">Loading logs...</div>}
-                        {!isLoadingLogs && pickerError && <div className="log-mapper__picker-message">{pickerError}</div>}
-                        {!isLoadingLogs && !pickerError && logNames.map((logName) => (
-                            <button
-                                className="log-mapper__log-option"
-                                disabled={Boolean(loadingLogName)}
-                                key={logName}
-                                onClick={() => {
-                                    void loadLog(logName)
-                                }}
-                                type="button"
-                            >
-                                <span className="log-mapper__log-time">{readableLogTime(logName)}</span>
-                                <span className="log-mapper__log-name">{`logs/${logName}`}</span>
-                                <span className="log-mapper__log-size">{findLogSize(logName)}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </section>
-
-            {/* Interactive map stage: static image plus SVG overlay that share the same transform. */}
-            <div
-                className={`log-mapper__stage ${isPanning ? 'is-panning' : ''}`}
-                onClick={handleMapClick}
-                onMouseDown={handleMouseDown}
-                onWheel={handleWheel}
-                ref={mapWrapRef}
-            >
-                <img
-                    alt="World map background"
-                    className="log-mapper__map"
-                    src={MAP_IMAGE_SRC}
-                    style={{
-                        transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`,
-                        transformOrigin: 'top left',
-                    }}
-                />
-
-                <svg className="log-mapper__overlay" ref={overlayRef} viewBox={`0 0 ${mapSize.width} ${mapSize.height}`}>
-                    <g transform={`translate(${view.tx} ${view.ty}) scale(${view.scale})`}>
-                        {/* Base routes for every plotted entry. */}
-                        <g>
-                            {routeLines.map((line) => (
-                                <line
-                                    className="log-mapper__route"
-                                    key={line.id}
-                                    stroke={line.color}
-                                    strokeWidth={1.2}
-                                    x1={line.x1}
-                                    x2={line.x2}
-                                    y1={line.y1}
-                                    y2={line.y2}
-                                />
-                            ))}
-                            {(() => {
-                                const edgeInfo = new Map<string, Set<string>>()
-                                routeLines.forEach((line) => {
-                                    const keys = getArrowKeys(line)
-                                    if (!keys) return
-                                    const set = edgeInfo.get(keys.undirected) || new Set<string>()
-                                    set.add(keys.directed)
-                                    edgeInfo.set(keys.undirected, set)
-                                })
-                                const renderedUndirected = new Set<string>()
-                                const renderedDirected = new Set<string>()
-                                return routeLines.map((line) => {
-                                    const keys = getArrowKeys(line)
-                                    if (!keys) return null
-                                    const info = edgeInfo.get(keys.undirected)
-                                    const biDirectional = Boolean(info && info.has(keys.directed) && info.has(keys.reverseDirected))
-                                    if (biDirectional) {
-                                        if (renderedDirected.has(keys.directed)) return null
-                                        renderedDirected.add(keys.directed)
-                                    } else {
-                                        if (renderedUndirected.has(keys.undirected)) return null
-                                        renderedUndirected.add(keys.undirected)
-                                    }
-                                    const points = line.reverseArrow
-                                        ? getMidArrowPoints(line.x2, line.y2, line.x1, line.y1)
-                                        : getMidArrowPoints(line.x1, line.y1, line.x2, line.y2)
-                                    if (!points) return null
-                                    return (
-                                        <polygon
-                                            key={`${line.id}-arrow`}
-                                            points={points}
-                                            fill={line.color}
-                                            fillOpacity={0.98}
-                                            stroke="rgba(60,60,60,0.65)"
-                                            strokeWidth={0.8}
-                                        />
-                                    )
-                                })
-                            })()}
-                        </g>
-
-                        {/* Selected route and hop markers are rendered in a separate layer for emphasis. */}
-                        {selectedPlottedEntry && (
-                            <g>
-                                {selectedRouteLines.map((line) => (
-                                    <line
-                                        className="log-mapper__route"
-                                        key={line.id}
-                                        stroke={line.color}
-                                        strokeWidth={2.2}
-                                        x1={line.x1}
-                                        x2={line.x2}
-                                        y1={line.y1}
-                                        y2={line.y2}
-                                    />
-                                ))}
-                                {selectedRouteLines.map((line) => {
-                                    const points = line.reverseArrow
-                                        ? getMidArrowPoints(line.x2, line.y2, line.x1, line.y1)
-                                        : getMidArrowPoints(line.x1, line.y1, line.x2, line.y2)
-                                    if (!points) return null
-                                    return (
-                                        <polygon
-                                            key={`${line.id}-arrow`}
-                                            points={points}
-                                            fill={line.color}
-                                            fillOpacity={0.98}
-                                            stroke="rgba(60,60,60,0.65)"
-                                            strokeWidth={0.8}
-                                        />
-                                    )
-                                })}
-
-                                {getRoutePoints(selectedPlottedEntry.entry).slice(0, -1).map((hop, hopIndex) => {
-                                    if (!hasCoordinates(hop)) return null
-                                    const hopPoint = projectPoint(hop, mapSize.width, mapSize.height)
-                                    return (
-                                        <circle
-                                            className="log-mapper__hop"
-                                            cx={hopPoint.x}
-                                            cy={hopPoint.y}
-                                            fill="rgba(255, 255, 255, 0.85)"
-                                            key={`${selectedPlottedEntry.key}-hop-${hopIndex}`}
-                                            r={HOP_RADIUS}
-                                        />
-                                    )
-                                })}
-
-                                {selectedHop && hasCoordinates(selectedHop) && (
-                                    <circle
-                                        cx={projectPoint(selectedHop, mapSize.width, mapSize.height).x}
-                                        cy={projectPoint(selectedHop, mapSize.width, mapSize.height).y}
-                                        fill={colorSet(selectedPlottedEntry.entry.direction).point}
-                                        r={SELECTED_HOP_RADIUS}
-                                        stroke="#ffffff"
-                                        strokeWidth={1.5}
-                                    />
-                                )}
-                            </g>
-                        )}
-
-                        {/* Destination points stay on top so hit-testing remains intuitive. */}
-                        <g>
-                            {plottedEntries.map((plotted) => {
-                                const isSelected = plotted.entry === selectedEntry
-                                const colors = colorSet(plotted.entry.direction)
-
-                                return (
-                                    <circle
-                                        className={`log-mapper__point ${isSelected ? 'is-selected' : ''}`}
-                                        cx={plotted.destination.x}
-                                        cy={plotted.destination.y}
-                                        fill={colors.point}
-                                        fillOpacity={selectedEntry && !isSelected ? 0.35 : 1}
-                                        key={plotted.key}
-                                        r={isSelected ? SELECTED_POINT_RADIUS : POINT_RADIUS}
-                                    />
-                                )
-                            })}
-                        </g>
-                    </g>
-                </svg>
-            </div>
-
-
-            {/* The status panel, map controls, and inspector sidebar are all hidden while the picker is open to avoid confusion. */}
-            {/*Log selector and loading state are handled in the picker overlay, which is shown on top of everything else when active.*/}
-            {!isPickerOpen && (
-                <>
-                    <div className="log-mapper__status">
-                        {statusText(activeLogName, entries.length, plottedEntries.length, segmentCount, selectedEntry)}
-                    </div>
-
-                    {/* Small map control strip that mirrors the standalone page controls. */}
-                    <nav className="log-mapper__controls">
-                        <button onClick={openPicker} type="button">Choose Log</button>
-                        <button
-                            onClick={() => {
-                                zoomAt(mapSize.width / 2, mapSize.height / 2, ZOOM_STEP)
-                            }}
-                            type="button"
-                        >
-                            +
-                        </button>
-                        <button
-                            onClick={() => {
-                                zoomAt(mapSize.width / 2, mapSize.height / 2, 1 / ZOOM_STEP)
-                            }}
-                            type="button"
-                        >
-                            -
-                        </button>
-                        <button onClick={resetView} type="button">Reset</button>
-                    </nav>
-
-                    {/* Status panel, map controls, and inspector sidebar are hidden while the picker is open to avoid confusion. */}
-                    <aside className={`log-mapper__inspector ${selectedEntry ? '' : 'is-hidden'}`}>
-                        {selectedEntry ? (
-                            <div className="log-mapper__inspector-content">
-                                <div className="log-mapper__button-row">
-                                    {selectedHop ? (
-                                        <button
-                                            onClick={() => {
-                                                setSelectedHopIndex(null)
-                                            }}
-                                            type="button"
-                                        >
-                                            Back To Entry
-                                        </button>
-                                    ) : (
-                                        selectedEntries.length > 1 && (
-                                            <>
-                                                <button onClick={() => moveSelectedEntry(-1)} type="button">Prev Entry</button>
-                                                <button onClick={() => moveSelectedEntry(1)} type="button">Next Entry</button>
-                                            </>
-                                        )
-                                    )}
-                                </div>
-
-                                <h3>
-                                    {selectedHop
-                                        ? `Hop ${selectedHopIndex !== null ? selectedHopIndex + 1 : ''}`
-                                        : `Entry ${selectedEntryIndex + 1} / ${selectedEntries.length}`}
-                                </h3>
-
-                                {selectedHop ? (
-                                    <>
-                                        {renderRows(selectedHop as Record<string, unknown>, [
-                                            'Nmap',
-                                            'nmap',
-                                            'tracedIps',
-                                            'uniqueIPs',
-                                        ])}
-                                        {hopNmapData && Object.keys(hopNmapData).length > 0 ? (
-                                            <div className="log-mapper__section">
-                                                <div className="log-mapper__section-title">Nmap ports</div>
-                                                {Object.keys(hopNmapData).sort(comparePortNames).map((port) => (
-                                                    <div className="log-mapper__row" key={port}>
-                                                        {port}: {String(hopNmapData[port] ?? 'n/a')}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <div className="log-mapper__section">
-                                                <div className="log-mapper__section-title">Nmap ports</div>
-                                                <div className="log-mapper__muted">No Nmap data</div>
-                                        
-                                            </div>
-                                        )
-                                        }
-                                    </>
-                                ) : (
-                                    <>
-                                        {renderRows(selectedEntry as Record<string, unknown>, [
-                                            'trace',
-                                            'locLookupTime',
-                                            'lat',
-                                            'lon',
-                                            'Nmap',
-                                            'nmap',
-                                            'tracedIps',
-                                            'uniqueIPs',
-                                        ])}
-                                        <div className="log-mapper__row">Coordinates: {formatCoordinates(selectedEntry)}</div>
-                                        <div className="log-mapper__row">Trace Hops: {selectedEntry.trace.length}</div>
-
-                                        {nmapData && Object.keys(nmapData).length > 0 ? (
-                                            <div className="log-mapper__section">
-                                                <div className="log-mapper__section-title">Nmap ports</div>
-                                                {Object.keys(nmapData).sort(comparePortNames).map((port) => (
-                                                    <div className="log-mapper__row" key={port}>
-                                                        {port}: {String(nmapData[port] ?? 'n/a')}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                                 <div className="log-mapper__section">
-                                                <div className="log-mapper__section-title">Nmap ports</div>
-                                                <div className="log-mapper__muted">No Nmap data</div>
-                                        
-                                            </div>
-                                        )
-                                        }
-                                        <div className="log-mapper__section">
-                                            <div className="log-mapper__section-title">Trace hops</div>
-                                            {!selectedEntry.trace.length ? (
-                                                <div className="log-mapper__muted">No trace data</div>
-                                            ) : (
-                                                <div className="log-mapper__hop-list">
-                                                    {selectedEntry.trace.map((hop, hopIndex) => {
-                                                        const locationParts = [hop.country, hop.province].filter(
-                                                            (part) => part && part !== '-',
-                                                        )
-
-                                                        return (
-                                                            <button
-                                                                key={`${selectedEntry.ip || 'entry'}-trace-${hopIndex}`}
-                                                                onClick={() => {
-                                                                    setSelectedHopIndex(hopIndex)
-                                                                }}
-                                                                type="button"
-                                                            >
-                                                                [{hopIndex + 1}] {hop.ip || 'n/a'}
-                                                                {locationParts.length ? ` - ${locationParts.join(', ')}` : ''}
-                                                            </button>
-                                                        )
-                                                    })}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        ) : (
-                            <div className="log-mapper__muted">Click a colored point to inspect its route.</div>
-                        )}
-                    </aside>
-                </>
-            )}
-        </div>
+    const nextPlottedEntries = buildPlottedEntries(entries, mapSize.width, mapSize.height)
+    setPlottedEntries(nextPlottedEntries)
+    setSegmentCount(
+      nextPlottedEntries.reduce((total, plottedEntry) => total + plottedEntry.routeSegments.length, 0),
     )
+  }, [entries, mapSize.height, mapSize.width])
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!dragRef.current.panning) return
+
+      const dx = event.clientX - dragRef.current.lastX
+      const dy = event.clientY - dragRef.current.lastY
+
+      if (Math.abs(dx) + Math.abs(dy) > PAN_THRESHOLD) {
+        dragRef.current.movedWhilePanning = true
+      }
+
+      dragRef.current.lastX = event.clientX
+      dragRef.current.lastY = event.clientY
+
+      setView((currentView) => ({
+        ...currentView,
+        tx: currentView.tx + dx,
+        ty: currentView.ty + dy,
+      }))
+    }
+
+    const handleMouseUp = () => {
+      dragRef.current.panning = false
+      setIsPanning(false)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
+
+  function zoomAt(screenX: number, screenY: number, factor: number) {
+    setView((currentView) => {
+      const nextScale = clamp(currentView.scale * factor, MIN_ZOOM, MAX_ZOOM)
+      if (nextScale === currentView.scale) return currentView
+
+      const ratio = nextScale / currentView.scale
+      return {
+        scale: nextScale,
+        tx: screenX - ((screenX - currentView.tx) * ratio),
+        ty: screenY - ((screenY - currentView.ty) * ratio),
+      }
+    })
+  }
+
+  function resetView() {
+    setView({ scale: 1, tx: 0, ty: 0 })
+  }
+
+  function clientToMapPoint(
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number; sx: number; sy: number } | null {
+    const overlay = overlayRef.current
+    if (!overlay || !mapSize.width || !mapSize.height) return null
+
+    const rect = overlay.getBoundingClientRect()
+    if (!rect.width || !rect.height) return null
+
+    const currentView = viewRef.current
+    const sx = (clientX - rect.left) * (mapSize.width / rect.width)
+    const sy = (clientY - rect.top) * (mapSize.height / rect.height)
+
+    return {
+      x: (sx - currentView.tx) / currentView.scale,
+      y: (sy - currentView.ty) / currentView.scale,
+      sx,
+      sy,
+    }
+  }
+
+  function selectEntries(entriesToSelect: Entry[], entryIndex = 0) {
+    setSelectedEntries(entriesToSelect)
+    setSelectedEntryIndex(entriesToSelect.length ? clamp(entryIndex, 0, entriesToSelect.length - 1) : 0)
+    setSelectedHopIndex(null)
+  }
+
+  function selectEntriesNear(clientX: number, clientY: number) {
+    const mapPoint = clientToMapPoint(clientX, clientY)
+    if (!mapPoint) return
+
+    const matches = plottedEntries
+      .filter((plotted) => Math.hypot(plotted.destination.x - mapPoint.x, plotted.destination.y - mapPoint.y) <= CLICK_RADIUS)
+      .map((plotted) => plotted.entry)
+
+    selectEntries(matches)
+  }
+
+  function selectEntriesForIp(ip: string) {
+    selectEntries(entries.filter((entry) => entryIpLabel(entry) === ip))
+  }
+
+  function moveSelectedEntry(delta: number) {
+    if (selectedEntries.length < 2) return
+
+    setSelectedEntryIndex((currentIndex) => {
+      const nextIndex = currentIndex + delta + selectedEntries.length
+      return nextIndex % selectedEntries.length
+    })
+    setSelectedHopIndex(null)
+  }
+
+  function handleMapClick(event: React.MouseEvent<HTMLDivElement>) {
+    if (dragRef.current.movedWhilePanning) {
+      dragRef.current.movedWhilePanning = false
+      return
+    }
+
+    selectEntriesNear(event.clientX, event.clientY)
+  }
+
+  function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
+    event.preventDefault()
+
+    const mapPoint = clientToMapPoint(event.clientX, event.clientY)
+    if (!mapPoint) return
+
+    if (event.ctrlKey) {
+      zoomAt(mapPoint.sx, mapPoint.sy, event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP)
+      return
+    }
+
+    setView((currentView) => ({
+      ...currentView,
+      tx: currentView.tx - event.deltaX,
+      ty: currentView.ty - event.deltaY,
+    }))
+  }
+
+  function handleMouseDown(event: React.MouseEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+
+    event.preventDefault()
+    dragRef.current.panning = true
+    dragRef.current.movedWhilePanning = false
+    dragRef.current.lastX = event.clientX
+    dragRef.current.lastY = event.clientY
+    setIsPanning(true)
+  }
+
+  return (
+    <div className="log-mapper">
+      <div className="log-mapper__workspace">
+        <LogMapperIpBrowser
+          ipGroups={ipGroups}
+          onSelectIp={selectEntriesForIp}
+          selectedIp={selectedIp}
+        />
+
+        <LogMapperMapPane
+          activeLogName={activeLogName}
+          entryCount={entries.length}
+          isPanning={isPanning}
+          mapSize={mapSize}
+          mapWrapRef={mapWrapRef}
+          onMapClick={handleMapClick}
+          onMouseDown={handleMouseDown}
+          onOpenPicker={onOpenPicker}
+          onResetView={resetView}
+          onWheel={handleWheel}
+          onZoomIn={() => {
+            zoomAt(mapSize.width / 2, mapSize.height / 2, ZOOM_STEP)
+          }}
+          onZoomOut={() => {
+            zoomAt(mapSize.width / 2, mapSize.height / 2, 1 / ZOOM_STEP)
+          }}
+          overlayRef={overlayRef}
+          plottedEntries={plottedEntries}
+          segmentCount={segmentCount}
+          selectedEntry={selectedEntry}
+          selectedHop={selectedHop}
+          view={view}
+        />
+
+        <LogMapperInspector
+          isEntryListExpanded={isEntryListExpanded}
+          onBackToEntry={() => {
+            setSelectedHopIndex(null)
+          }}
+          onNextEntry={() => {
+            moveSelectedEntry(1)
+          }}
+          onPrevEntry={() => {
+            moveSelectedEntry(-1)
+          }}
+          onSelectEntry={(entryIndex) => {
+            selectEntries(selectedEntries, entryIndex)
+          }}
+          onSelectHop={(hopIndex) => {
+            setSelectedHopIndex(hopIndex)
+          }}
+          onToggleEntryList={() => {
+            setIsEntryListExpanded((current) => !current)
+          }}
+          selectedEntries={selectedEntries}
+          selectedEntry={selectedEntry}
+          selectedEntryIndex={selectedEntryIndex}
+          selectedHop={selectedHop}
+          selectedHopIndex={selectedHopIndex}
+          selectedIp={selectedIp}
+          selectedIpGroup={selectedIpGroup}
+          selectionSharesSameIp={selectionSharesSameIp}
+        />
+      </div>
+    </div>
+  )
 }

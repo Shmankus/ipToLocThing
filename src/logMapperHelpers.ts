@@ -219,6 +219,17 @@ export function formatCoordinates(point: Pick<Entry | Hop, 'lat' | 'lon'> | null
   return hasCoordinates(point) ? `${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}` : 'n/a'
 }
 
+export function formatLocation(
+  point: Pick<Entry | Hop, 'country' | 'province'> | null | undefined,
+  fallback = 'Unknown location',
+): string {
+  const parts = [point?.province, point?.country].filter(
+    (part): part is string => typeof part === 'string' && part.trim() !== '' && part !== '-',
+  )
+
+  return parts.length ? parts.join(', ') : fallback
+}
+
 export function formatKeyLabel(key: string): string {
   return key
     .replace(/([A-Z])/g, ' $1')
